@@ -1,0 +1,153 @@
+.mvp-gate {
+  min-height: 100svh;
+  background: #f7f8f4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 22px;
+  gap: 18px;
+  text-align: center;
+}
+.mvp-gate h1 {
+  font-size: 28px;
+  font-weight: 650;
+  color: #202321;
+}
+.mvp-gate p {
+  color: #627064;
+  max-width: 520px;
+  line-height: 1.8;
+}
+.mvp-gate form {
+  display: grid;
+  gap: 14px;
+  width: min(440px, 100%);
+  text-align: left;
+  padding: 26px;
+  background: white;
+  border: 1px solid #e1e5dc;
+  border-radius: 12px;
+}
+.mvp-gate label {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.mvp-gate input {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #d9dfd4;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 16px;
+}
+.mvp-gate small {
+  color: #758071;
+  max-width: 440px;
+  line-height: 1.8;
+}
+.mvp-error {
+  color: #a93e39 !important;
+}
+.mvp-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid #dde3d6;
+  border-radius: 10px;
+  color: #202321;
+}
+.mvp-qr img {
+  max-width: 100%;
+  height: auto;
+}
+.mvp-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.mvp-inline-actions .button {
+  font-size: 12px;
+  min-height: 40px;
+}
+.event-selector select {
+  flex: 1;
+  min-width: 0;
+  max-width: 650px;
+  border: none;
+  background: transparent;
+  font-weight: 600;
+  font-size: 14px;
+  color: #27322a;
+  padding: 10px 2px;
+  cursor: pointer;
+}
+.sidebar-user button {
+  background: none;
+  border: none;
+  color: #bac3b7;
+  font-size: 11px;
+  cursor: pointer;
+}
+.event-app .nav-dot {
+  background: var(--event-brand, #c89538);
+}
+.event-app .event-selector-symbol {
+  background: var(--event-brand, #c89538);
+}
+.event-app .wordmark img {
+  object-fit: contain;
+}
+.event-app .prototype-tag {
+  color: #3d654f;
+  background: #e9f2e9;
+  border-color: #d2e4d3;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.mvp-workspace .button-primary {
+  background: var(--event-brand, #c89538);
+}
+
+/* Ceremony creation fields */
+.mvp-gate select {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #d9dfd4;
+  border-radius: 6px;
+  background: #fff;
+  color: #27322a;
+  font-size: 15px;
+}
+.mvp-gate-fieldset {
+  display: grid;
+  gap: 12px;
+  margin: 2px 0 0;
+  padding: 15px;
+  border: 1px solid #e2e6dc;
+  border-radius: 8px;
+}
+.mvp-gate-fieldset legend {
+  padding: 0 5px;
+  color: #64705e;
+  font-size: 12px;
+  font-weight: 700;
+}
+.mvp-gate-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 460px) {
+  .mvp-gate-two-col {
+    grid-template-columns: 1fr;
+  }
+}

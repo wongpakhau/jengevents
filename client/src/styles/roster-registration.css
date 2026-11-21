@@ -1,0 +1,367 @@
+/* Scoped to roster registration: no changes to the original guest flow. */
+.roster-registration {
+  background: #f8f6ef;
+}
+
+.roster-registration,
+.roster-registration *,
+.roster-registration *::before,
+.roster-registration *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+.roster-registration .event-mobile-hero::after {
+  display: none;
+}
+
+.roster-registration .event-mobile-hero h1,
+.roster-registration .event-mobile-hero p,
+.roster-registration .registration-privacy {
+  overflow-wrap: anywhere;
+}
+
+.roster-registration .event-mobile-eyebrow {
+  color: #756026;
+}
+
+.roster-registration .event-mobile-hero .event-mobile-eyebrow {
+  color: #f0d498;
+}
+
+.roster-registration input:not([type="checkbox"]),
+.roster-registration select {
+  min-height: 48px;
+}
+
+.roster-registration select {
+  padding-right: 30px;
+}
+
+.roster-registration input:disabled,
+.roster-registration select:disabled {
+  color: #687064;
+  background: #f2f1eb;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.roster-registration .event-mobile-primary,
+.roster-registration .event-mobile-secondary {
+  min-height: 48px;
+  height: auto;
+  padding: 12px 14px;
+  white-space: normal;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.roster-registration .event-mobile-primary:hover:not(:disabled) {
+  transform: none;
+}
+
+.roster-registration button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.roster-registration__self-check {
+  margin: 16px 0 0;
+  padding: 12px 13px;
+  border: 1px solid #e6d6b5;
+  border-radius: 8px;
+  color: #65502c;
+  background: #fcf5e7;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.roster-registration__consent {
+  min-height: 48px;
+  align-items: center;
+  padding: 8px 0;
+  cursor: pointer;
+}
+
+.roster-registration .roster-registration__consent input {
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  margin: 0;
+  padding: 0;
+}
+
+.roster-registration .roster-registration__consent input:focus-visible {
+  outline: 3px solid #b48127;
+  outline-offset: 3px;
+}
+
+.roster-registration__status {
+  margin: 16px 0 0;
+  color: #5f665c;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.roster-registration .event-mobile-alert svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.roster-registration__preview {
+  border-color: #d9be86;
+}
+
+.roster-registration__preview h2:focus {
+  outline: none;
+}
+
+.roster-registration__details {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 18px 0 0;
+}
+
+.roster-registration__details > div {
+  min-width: 0;
+  padding: 12px 0;
+  border-bottom: 1px solid #e8e4d9;
+}
+
+.roster-registration__details dt {
+  margin: 0;
+  color: #6b7268;
+  font-size: 12px;
+}
+
+.roster-registration__details dd {
+  margin: 4px 0 0;
+  color: #30382f;
+  font-size: 17px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.roster-registration__seat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 6px;
+  margin: 20px 0 0;
+  padding: 22px 12px;
+  border: 1px solid #dfc694;
+  border-radius: 10px;
+  color: #59431e;
+  background: #faf1dd;
+  text-align: center;
+}
+
+.roster-registration__seat > span {
+  color: #76613d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.roster-registration__seat > span:not(:first-child) {
+  margin-top: 14px;
+}
+
+.roster-registration__seat strong {
+  max-width: 100%;
+  font-size: clamp(28px, 9vw, 46px);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.roster-registration__seat p {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.roster-registration__edit {
+  width: 100%;
+  margin-top: 10px;
+}
+
+@media (max-width: 360px) {
+  .roster-registration .event-mobile-card {
+    padding: 16px;
+  }
+
+  .roster-registration .event-mobile-hero {
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+}
+
+/* Name-first roster selection extension: original rules above remain unchanged. */
+.roster-registration__supplement {
+  margin-top: 20px;
+  padding: 14px;
+  border: 1px solid #e6d6b5;
+  border-radius: 8px;
+  background: #fcfaf4;
+}
+
+.roster-registration__supplement > summary {
+  min-height: 48px;
+  align-content: center;
+  color: #65502c;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.roster-registration__supplement > summary:focus-visible,
+.roster-registration__choose:focus-visible {
+  outline: 3px solid #b48127;
+  outline-offset: 3px;
+}
+
+.roster-registration__results h2:focus {
+  outline: none;
+}
+
+.roster-registration__candidates {
+  display: grid;
+  gap: 16px;
+  margin: 20px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.roster-registration__candidate {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #d9be86;
+  border-radius: 10px;
+  background: #fcfaf4;
+  overflow-wrap: anywhere;
+}
+
+.roster-registration__candidate h3 {
+  margin: 0;
+  color: #30382f;
+  font-size: 21px;
+  line-height: 1.5;
+}
+
+.roster-registration__candidate-seat {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px 12px;
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid #dfc694;
+  border-radius: 8px;
+  color: #59431e;
+  background: #faf1dd;
+}
+
+.roster-registration__candidate-seat > span {
+  color: #76613d;
+  font-size: 13px;
+}
+
+.roster-registration__candidate-seat strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.roster-registration__candidate-seat p {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 13px;
+}
+
+.roster-registration__choose {
+  width: 100%;
+}
+
+
+.roster-registration__directory-toggle {
+  width: 100%;
+  margin-top: 18px;
+}
+
+.roster-registration__directory {
+  margin-top: 18px;
+  border: 1px solid #dfc694;
+  background: #fffdf8;
+}
+
+.roster-registration__directory h2 {
+  margin: 4px 0 10px;
+  color: #30382f;
+  font-size: 21px;
+  line-height: 1.4;
+}
+
+.roster-registration__directory input[type="search"] {
+  width: 100%;
+}
+
+.roster-registration__directory-list {
+  max-height: min(48vh, 420px);
+  margin: 12px 0 18px;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid #e7dfd0;
+  border-radius: 10px;
+  background: #fff;
+  list-style: none;
+  overscroll-behavior: contain;
+}
+
+.roster-registration__directory-list li + li {
+  border-top: 1px solid #eee8dc;
+}
+
+.roster-registration__directory-name {
+  display: flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 0;
+  color: #30382f;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.roster-registration__directory-name:hover:not(:disabled) {
+  background: #faf1dd;
+}
+
+.roster-registration__directory-name > span:first-child {
+  overflow-wrap: anywhere;
+  font-weight: 650;
+}
+
+.roster-registration__directory-name > span:last-child {
+  flex: 0 0 auto;
+  color: #76571d;
+  font-size: 13px;
+}
+
+.roster-registration__directory-name:focus-visible,
+.roster-registration__directory-close:focus-visible {
+  outline: 3px solid #b48127;
+  outline-offset: 2px;
+}
+
+.roster-registration__directory-name:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.roster-registration__directory-close {
+  width: 100%;
+}

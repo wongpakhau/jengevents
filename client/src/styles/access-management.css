@@ -1,0 +1,462 @@
+/* Extension of the existing EventFlow warm-white workspace vocabulary. */
+.access-management {
+  min-height: 100svh;
+  background: var(--background, #f7f8f4);
+  color: var(--foreground, #292e29);
+  --access-line: var(--border, #e7e9e2);
+  --access-muted: #627064;
+  --access-panel: var(--card, #fff);
+}
+
+.access-management .button,
+.access-login .button,
+.access-account .button {
+  min-height: 42px;
+  font-size: 12px;
+  padding: 8px 15px;
+  white-space: normal;
+  text-decoration: none;
+}
+
+.access-management :is(button, a, input, select):focus-visible,
+.access-login button:focus-visible,
+.access-account :is(button, a):focus-visible {
+  outline: 3px solid #c89538;
+  outline-offset: 3px;
+}
+
+.access-header {
+  min-height: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--access-line);
+  background: var(--access-panel);
+  padding: 16px max(22px, calc((100% - 1100px) / 2));
+}
+
+.access-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  color: inherit;
+  text-decoration: none;
+  font-size: 17px;
+  font-weight: 700;
+}
+.access-brand-subtitle {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--access-muted);
+}
+.access-content {
+  max-width: 1144px;
+  margin: 0 auto;
+  padding: 34px 22px 64px;
+}
+.access-title {
+  margin-bottom: 24px;
+}
+.access-kicker {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  color: #796b48;
+}
+.access-title h1 {
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.5px;
+  margin: 8px 0 10px;
+}
+.access-title p,
+.access-directory-heading p {
+  color: var(--access-muted);
+  line-height: 1.8;
+  margin: 0;
+}
+.access-panel {
+  padding: 24px;
+  margin-bottom: 20px;
+  border: 1px solid var(--access-line);
+  border-radius: 12px;
+  background: var(--access-panel);
+  box-shadow: 0 3px 16px #20232105;
+}
+.access-panel h2 {
+  font-size: 17px;
+  font-weight: 650;
+  margin: 0 0 12px;
+}
+.access-session {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+}
+.access-session .access-account {
+  align-items: flex-start;
+  text-align: left;
+}
+.access-session .mvp-inline-actions {
+  justify-content: flex-start;
+}
+.access-owner-note {
+  background: #fffdf7;
+}
+.access-owner-note p {
+  margin: 10px 0 0;
+  line-height: 1.8;
+  color: var(--access-muted);
+}
+.access-owner-note ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.access-owner-note li {
+  display: grid;
+  gap: 4px;
+}
+.access-owner-note li span {
+  font-size: 12px;
+  color: var(--access-muted);
+  overflow-wrap: anywhere;
+}
+.access-feedback:empty {
+  display: none;
+}
+.access-error,
+.access-success {
+  padding: 12px 14px;
+  border-radius: 7px;
+  line-height: 1.8;
+  margin: 0 0 18px;
+  overflow-wrap: anywhere;
+}
+.access-error {
+  color: #a2342d;
+  background: #fff6f5;
+  border: 1px solid #efccc7;
+}
+.access-success {
+  color: #285e48;
+  background: #edf5ef;
+  border: 1px solid #cdddce;
+}
+.access-directory-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+}
+.access-directory-heading p {
+  max-width: 650px;
+  font-size: 12px;
+}
+.access-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  border: 1px solid #dde3d6;
+  border-radius: 5px;
+  background: #f2f4ee;
+  color: #4d5f4c;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  padding: 4px 8px;
+}
+.access-badge-pending {
+  background: #fff8e9;
+  color: #795c20;
+  border-color: #ead8ad;
+}
+.access-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.access-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 230px);
+  gap: 16px;
+  margin: 22px 0;
+}
+.access-management label {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.access-management :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid #d9dfd4;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+}
+.access-management :is(input, select):disabled {
+  background: #f2f4ee;
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+.access-results {
+  font-size: 12px;
+  color: var(--access-muted);
+  margin: 0 0 14px;
+}
+.access-note {
+  margin: 12px 0;
+  padding: 12px 14px;
+  background: #fffaf0;
+  border: 1px solid #ead8ad;
+  border-radius: 7px;
+  color: #7c6025;
+  line-height: 1.8;
+}
+.access-user-list {
+  display: grid;
+  gap: 18px;
+}
+.access-user {
+  border: 1px solid var(--access-line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.access-user-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px;
+  background: #f7f8f4;
+}
+.access-user-heading h3 {
+  font-size: 16px;
+  font-weight: 650;
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+}
+.access-user-heading p {
+  margin: 0;
+  color: var(--access-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.access-system-role {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--access-line);
+  border-bottom: 1px solid var(--access-line);
+}
+.access-system-role > small {
+  color: var(--access-muted);
+  line-height: 1.7;
+}
+.access-assignments {
+  padding: 18px 20px;
+}
+.access-user h4 {
+  font-size: 13px;
+  font-weight: 650;
+  margin: 0 0 12px;
+}
+.access-muted {
+  color: var(--access-muted);
+  line-height: 1.8;
+  margin: 0;
+}
+.access-assignments ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.access-assignments li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 0;
+  border-top: 1px solid var(--access-line);
+}
+.access-assignments li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.access-assignments li:last-child {
+  padding-bottom: 0;
+}
+.access-assignments li strong {
+  display: block;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.access-assignments li span {
+  display: block;
+  font-size: 12px;
+  color: var(--access-muted);
+  margin-top: 5px;
+}
+.access-assignment-form {
+  padding: 20px;
+  border-top: 1px solid var(--access-line);
+  background: #fdfefb;
+}
+.access-form-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.access-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.access-actions small {
+  color: var(--access-muted);
+  line-height: 1.8;
+  max-width: 440px;
+}
+.access-confirm {
+  background: #fffaf0;
+  border: 1px solid #ead8ad;
+  border-radius: 7px;
+  padding: 12px 14px;
+}
+.access-confirm p {
+  margin: 0;
+  line-height: 1.8;
+}
+.access-button-danger {
+  color: #a2342d;
+  border-color: #e9c9c4;
+  background: #fff6f5;
+}
+.access-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  gap: 16px;
+  text-align: center;
+  padding: 30px 20px;
+}
+.access-empty :is(h2, h3, p) {
+  margin: 0;
+}
+.access-empty p {
+  color: var(--access-muted);
+  max-width: 560px;
+  line-height: 1.8;
+}
+.access-login,
+.access-account {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+}
+.access-login {
+  text-align: center;
+}
+.access-login p,
+.access-account p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+.access-login small,
+.access-account small {
+  color: #627064;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.access-account p > small {
+  display: block;
+}
+.access-account .mvp-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+@media (max-width: 640px) {
+  .access-header {
+    padding: 14px 16px;
+    gap: 12px;
+  }
+  .access-content {
+    padding: 26px 16px 40px;
+  }
+  .access-title h1 {
+    font-size: 25px;
+  }
+  .access-panel {
+    padding: 18px 16px;
+  }
+  .access-toolbar {
+    grid-template-columns: 1fr;
+  }
+  .access-directory-heading,
+  .access-user-heading {
+    flex-direction: column;
+  }
+  .access-user-heading,
+  .access-system-role,
+  .access-assignments,
+  .access-assignment-form {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .access-form-fields {
+    grid-template-columns: 1fr;
+  }
+  .access-actions {
+    align-items: flex-start;
+  }
+  .access-system-role {
+    align-items: flex-start;
+  }
+  .access-brand {
+    font-size: 15px;
+    gap: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .access-management .button,
+  .access-login .button,
+  .access-account .button {
+    transition: none;
+  }
+  .access-management .button:hover,
+  .access-login .button:hover,
+  .access-account .button:hover {
+    transform: none;
+  }
+}

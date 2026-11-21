@@ -1,0 +1,181 @@
+.participant-page,
+.participant-login {
+  color: #202321;
+  font-family: "Noto Sans TC", "Noto Sans", sans-serif;
+  line-height: 1.6;
+}
+.participant-page {
+  width: min(100%, 620px);
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+  background: #f7f8f4;
+  font-size: 14px;
+}
+.participant-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  font-weight: 600;
+}
+.participant-header img {
+  object-fit: contain;
+}
+.participant-card {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 24px;
+  border: 1px solid #e4e5de;
+  border-radius: 12px;
+  background: #fff;
+}
+.participant-card h1 {
+  font-size: clamp(24px, 5.5vw, 30px);
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1.3;
+}
+.participant-card h2 {
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.participant-card p {
+  margin: 0;
+}
+.participant-status {
+  color: #91651c;
+  font-size: 13px;
+  font-weight: 700;
+}
+.participant-button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 44px;
+  width: 100%;
+  padding: 8px 16px;
+  border: 1px solid #202321;
+  border-radius: 8px;
+  color: #fff;
+  background: #202321;
+  font: inherit;
+  font-weight: 600;
+}
+.participant-button--secondary {
+  color: #202321;
+  border-color: #d8dcd3;
+  background: #f7f8f4;
+}
+.participant-button--secondary:hover:not(:disabled) {
+  border-color: #c89538;
+}
+.participant-button:focus-visible,
+.participant-page input:focus-visible {
+  outline: 3px solid #c89538;
+  outline-offset: 3px;
+}
+.participant-login {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e4e5de;
+  font-size: 13px;
+  text-align: center;
+}
+.participant-login p {
+  margin: 0;
+}
+.participant-login small,
+.participant-help {
+  color: #646b61;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.participant-error {
+  color: #963c30;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.participant-timing {
+  display: grid;
+  gap: 12px;
+  margin: 4px 0;
+  padding: 16px 0;
+  border-block: 1px solid #e4e5de;
+}
+.participant-timing div {
+  display: grid;
+  gap: 4px;
+}
+.participant-timing dt {
+  color: #646b61;
+  font-size: 12px;
+}
+.participant-timing dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.participant-footnote {
+  padding: 0 8px;
+}
+.participant-guard {
+  display: grid;
+  align-content: start;
+  padding-top: 48px;
+}
+/* QRScanner is reused without its decorative card/hero styles. Camera remains opt-in. */
+.participant-page .qr-scanner {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.participant-page .qr-scanner__heading {
+  margin-top: 4px;
+}
+.participant-page .qr-scanner__icon {
+  display: none;
+}
+.participant-page .qr-scanner__heading h3 {
+  font-size: 15px;
+}
+.participant-page .event-mobile-primary,
+.participant-page .event-mobile-secondary {
+  min-height: 44px;
+  font-family: inherit;
+  transition: none;
+}
+.participant-page .event-mobile-primary:hover:not(:disabled) {
+  transform: none;
+}
+.participant-page .qr-scanner__manual input {
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #d8dcd3;
+  border-radius: 8px;
+  font-size: 16px;
+  background: #fff;
+}
+.participant-page .qr-scanner__manual > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+@media (max-width: 390px) {
+  .participant-card {
+    padding: 16px;
+  }
+  .participant-page .qr-scanner__manual > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
