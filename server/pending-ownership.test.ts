@@ -397,6 +397,20 @@ describe("pending ownership isolation", () => {
     expect(mock.data.org.owner_user_id).toBeNull();
     expect(mock.data.event.owner_user_id).toBeNull();
   });
+  it.each([
+    "pakhauwong@gmail.com",
+    "mikilee1028@gmail.com",
+    "yeeayeeahk@gmail.com",
+    "garyyang020730@gmail.com",
+  ])("allows verified system owner %s to claim the pending event", async email => {
+    mock.user = owner(4, email);
+    expect((await request("/system/pending-ownership")).status).toBe(200);
+    expect(
+      (await request("/system/pending-ownership/claim", "POST", {})).status
+    ).toBe(200);
+    expect(mock.data.org.owner_user_id).toBe(4);
+    expect(mock.data.event.owner_user_id).toBe(4);
+  });
   it("claims both rows for the session identity, audits once and safely repeats", async () => {
     expect(
       (await request("/system/pending-ownership/claim", "POST", {})).status

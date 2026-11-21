@@ -1,7 +1,12 @@
 import type { AuthenticatedUser } from "../_core/sdk";
 import type { Role } from "../../shared/eventflow";
 
-const OWNER_EMAILS = new Set(["pakhauwong@gmail.com", "mikilee1028@gmail.com"]);
+const OWNER_EMAILS = new Set([
+  "pakhauwong@gmail.com",
+  "mikilee1028@gmail.com",
+  "yeeayeeahk@gmail.com",
+  "garyyang020730@gmail.com",
+]);
 /** Only a verified direct Google identity is eligible; a Manus name/email is not sufficient. */
 export function isSystemOwner(
   user: Pick<AuthenticatedUser, "email" | "authProvider" | "emailVerified">

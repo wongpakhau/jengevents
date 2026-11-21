@@ -5,7 +5,12 @@ import {
   GUEST_MANAGERS,
 } from "./eventflow/access-policy";
 describe("system access policy", () => {
-  it.each(["pakhauwong@gmail.com", "mikilee1028@gmail.com"])(
+  it.each([
+    "pakhauwong@gmail.com",
+    "mikilee1028@gmail.com",
+    "yeeayeeahk@gmail.com",
+    "garyyang020730@gmail.com",
+  ])(
     "recognises only verified Google owner %s",
     email => {
       expect(
@@ -17,6 +22,13 @@ describe("system access policy", () => {
       expect(
         isSystemOwner({ email, authProvider: "google", emailVerified: false })
       ).toBe(false);
+      expect(
+        isSystemOwner({
+          email: `  ${email.toUpperCase()}  `,
+          authProvider: "google",
+          emailVerified: true,
+        })
+      ).toBe(true);
       expect(
         isSystemOwner({
           email,

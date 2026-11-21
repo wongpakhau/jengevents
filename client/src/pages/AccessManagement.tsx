@@ -242,7 +242,7 @@ export function AccessManagement() {
                 </ul>
               )}
               <p>
-                系統擁有者只由指定的兩個已驗證 Google
+                系統擁有者只由指定的已驗證 Google
                 帳戶登入後，經後端確認。尚未登入的擁有者不會顯示在清單；此頁不能授予或移除系統擁有者身份。
               </p>
               <p>
