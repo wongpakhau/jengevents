@@ -318,11 +318,7 @@ describe("Google route registration and configuration", () => {
     expect(mocks.write).not.toHaveBeenCalled();
   });
 
-  it("ships with no production origins and fails closed when the list is empty", async () => {
-    const actual = await vi.importActual<
-      typeof import("./_core/googleOrigins")
-    >("./_core/googleOrigins");
-    expect(actual.GOOGLE_TRUSTED_ORIGINS).toEqual([]);
+  it("fails closed when the trusted origin list is empty", async () => {
     mocks.trustedOrigins.length = 0;
     expect((await invoke("GET", "/api/auth/google/status")).body).toEqual({
       configured: false,

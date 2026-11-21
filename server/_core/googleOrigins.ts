@@ -6,4 +6,6 @@
  * and register each `${origin}/api/auth/google/callback` with Google.
  * Do not add wildcards or derive this list from incoming request headers.
  */
-export const GOOGLE_TRUSTED_ORIGINS: readonly string[] = [];
+export const GOOGLE_TRUSTED_ORIGINS: readonly string[] = [
+  "https://eventflow-ctmsgwbx.manus.space",
+];
