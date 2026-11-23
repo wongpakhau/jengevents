@@ -54,8 +54,8 @@ export function defaultEvent(input: {
     registrationCheckIn: false,
     rosterClaimEnabled: false,
     rosterChapters: [],
-    thresholdCents: 100_000,
-    accumulation: "per_transaction",
+    thresholdCents: 50_000,
+    accumulation: "cumulative",
     ruleVersion: 1,
     excludeWinners: true,
   };

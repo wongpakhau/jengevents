@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { BrowserQRCodeReader } from "@zxing/browser";
 import { Camera, Keyboard, LoaderCircle, ScanLine, X } from "lucide-react";
 
@@ -10,6 +10,7 @@ type QRScannerProps = {
   manualPlaceholder?: string;
   disabled?: boolean;
   className?: string;
+  embedded?: boolean;
 };
 
 function cameraErrorMessage(error: unknown) {
@@ -39,7 +40,10 @@ export default function QRScanner({
   manualPlaceholder = "貼上 QR 的完整連結或 token",
   disabled = false,
   className = "",
+  embedded = false,
 }: QRScannerProps) {
+  const manualInputId = useId();
+  const ManualTag = embedded ? "div" : "form";
   const videoRef = useRef<HTMLVideoElement>(null);
   const readerRef = useRef<BrowserQRCodeReader | null>(null);
   const controlsRef = useRef<{ stop: () => void } | null>(null);
@@ -130,8 +134,9 @@ export default function QRScanner({
     }
   }, [cameraOpen, disabled, reportValue, starting, stopCamera]);
 
-  const submitManual = async (event: React.FormEvent) => {
+  const submitManual = async (event: React.SyntheticEvent) => {
     event.preventDefault();
+    event.stopPropagation();
     if (!manualValue.trim() || disabled || submittingManual) return;
     setSubmittingManual(true);
     await reportValue(manualValue);
@@ -191,29 +196,33 @@ export default function QRScanner({
         </p>
       )}
 
-      <form className="qr-scanner__manual" onSubmit={submitManual}>
-        <label htmlFor="qr-manual-value">
+      <ManualTag className="qr-scanner__manual" onSubmit={submitManual}>
+        <label htmlFor={manualInputId}>
           <Keyboard size={15} />
           {manualLabel}
         </label>
         <div>
           <input
-            id="qr-manual-value"
+            id={manualInputId}
             value={manualValue}
             onChange={event => setManualValue(event.target.value)}
+            onKeyDown={event => {
+              if (embedded && event.key === "Enter") void submitManual(event);
+            }}
             placeholder={manualPlaceholder}
             autoComplete="off"
             disabled={disabled || submittingManual}
           />
           <button
-            type="submit"
+            type={embedded ? "button" : "submit"}
+            onClick={embedded ? event => void submitManual(event) : undefined}
             className="event-mobile-secondary"
             disabled={disabled || submittingManual || !manualValue.trim()}
           >
             {submittingManual ? "處理中…" : "確認"}
           </button>
         </div>
-      </form>
+      </ManualTag>
     </section>
   );
 }

@@ -27,29 +27,42 @@ export function WorkspaceGate({ children }: { children: ReactNode }) {
   if (pending) return <JoinWorkspace />;
   if (!session.events.length)
     return session.canCreateEvents ? (
-      <><PendingOwnership /><CreateFirstEvent /></>
+      <>
+        <PendingOwnership />
+        <CreateFirstEvent />
+      </>
     ) : (
       <WaitingForAccess />
     );
   if (!state)
     return (
-      <><PendingOwnership /><StatusPane
-        text={error || "正在載入活動資料…"}
-        action={
-          error && (
-            <button className="button" onClick={() => void reload()}>
-              重新讀取
-            </button>
-          )
-        }
-      /></>
+      <>
+        <PendingOwnership />
+        <StatusPane
+          text={error || "正在載入活動資料…"}
+          action={
+            error && (
+              <button className="button" onClick={() => void reload()}>
+                重新讀取
+              </button>
+            )
+          }
+        />
+      </>
     );
-  return <><PendingOwnership />{children}</>;
+  return (
+    <>
+      <PendingOwnership />
+      {children}
+    </>
+  );
 }
 
 function PendingOwnership() {
   const { session, refreshSession, setEventId } = useWorkspace();
-  const [items, setItems] = useState<{ eventId: string; name: string; date: string }[]>([]);
+  const [items, setItems] = useState<
+    { eventId: string; name: string; date: string }[]
+  >([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const busyRef = useRef(false);
@@ -57,34 +70,73 @@ function PendingOwnership() {
     if (session?.user.systemRole !== "owner") return;
     let active = true;
     void api<typeof items>("/system/pending-ownership").then(
-      data => { if (active) setItems(data); },
-      () => { if (active) setError("未能讀取待指派清單，請刷新頁面重試。"); }
+      data => {
+        if (active) setItems(data);
+      },
+      () => {
+        if (active) setError("未能讀取待指派清單，請刷新頁面重試。");
+      }
     );
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [session?.user.systemRole]);
-  if (session?.user.systemRole !== "owner" || (!items.length && !error)) return null;
+  if (session?.user.systemRole !== "owner" || (!items.length && !error))
+    return null;
   return (
     <section className="mvp-gate" aria-label="待指派活動">
       <h2>待指派</h2>
-      {items.map(item => <div key={item.eventId}>
-        <p>{item.name} · {item.date}</p>
-        <p>指派給目前登入帳戶：{session.user.email || session.user.name}</p>
-        <button type="button" className="button button-dark" disabled={busy} onClick={async () => {
-          if (busyRef.current || !window.confirm(`確定將「${item.name}」及其組織指派給目前登入帳戶 ${session.user.email || session.user.name}？`)) return;
-          busyRef.current = true;
-          setBusy(true);
-          setError("");
-          try {
-            const result = await api<{eventId: string}>("/system/pending-ownership/claim", "POST", {});
-            setEventId(result.eventId);
-            setItems([]);
-            await refreshSession();
-          } catch (reason) {
-            setError(reason instanceof Error ? reason.message : "指派未完成，請重試。");
-          } finally { busyRef.current = false; setBusy(false); }
-        }}>{busy ? "指派中…" : "指派給目前登入帳戶"}</button>
-      </div>)}
-      {error && <p className="mvp-error" role="alert">{error}</p>}
+      {items.map(item => (
+        <div key={item.eventId}>
+          <p>
+            {item.name} · {item.date}
+          </p>
+          <p>指派給目前登入帳戶：{session.user.email || session.user.name}</p>
+          <button
+            type="button"
+            className="button button-dark"
+            disabled={busy}
+            onClick={async () => {
+              if (
+                busyRef.current ||
+                !window.confirm(
+                  `確定將「${item.name}」及其組織指派給目前登入帳戶 ${session.user.email || session.user.name}？`
+                )
+              )
+                return;
+              busyRef.current = true;
+              setBusy(true);
+              setError("");
+              try {
+                const result = await api<{ eventId: string }>(
+                  "/system/pending-ownership/claim",
+                  "POST",
+                  {}
+                );
+                setEventId(result.eventId);
+                setItems([]);
+                await refreshSession();
+              } catch (reason) {
+                setError(
+                  reason instanceof Error
+                    ? reason.message
+                    : "指派未完成，請重試。"
+                );
+              } finally {
+                busyRef.current = false;
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "指派中…" : "指派給目前登入帳戶"}
+          </button>
+        </div>
+      ))}
+      {error && (
+        <p className="mvp-error" role="alert">
+          {error}
+        </p>
+      )}
     </section>
   );
 }
@@ -191,9 +243,12 @@ export function GoogleLoginButton({ returnTo }: { returnTo?: string }) {
       >
         {starting ? "正在前往 Google…" : "使用 Google 帳戶登入"}
       </button>
-      {import.meta.env.PROD && window.location.origin !== GOOGLE_PRODUCTION_ORIGIN && (
-        <small>Google 登入會前往 bp.jengevents.com，完成後將留在正式網站。</small>
-      )}
+      {import.meta.env.PROD &&
+        window.location.origin !== GOOGLE_PRODUCTION_ORIGIN && (
+          <small>
+            Google 登入會前往 bp.jengevents.com，完成後將留在正式網站。
+          </small>
+        )}
       {configured === null && !statusError && (
         <small role="status">正在確認 Google 登入設定…</small>
       )}
@@ -226,6 +281,23 @@ export function GoogleLoginButton({ returnTo }: { returnTo?: string }) {
         以 Google 登入後自動建立待授權帳戶；毋須另外設定電郵或密碼。
       </small>
       <ParticipantLoginButton />
+      <section className="role-demo-entry" aria-label="角色測試入口">
+        <strong>角色測試（獨立示範）</strong>
+        <div className="mvp-inline-actions">
+          <Link href="/demo/admin" className="button button-white">
+            測試管理員
+          </Link>
+          <Link href="/demo/merchant" className="button button-white">
+            商家測試
+          </Link>
+          <Link href="/demo/guest" className="button button-white">
+            用家測試
+          </Link>
+        </div>
+        <small>
+          不會登入正式帳戶。示範消費只保存於此瀏覽器，不影響真實活動、對帳或抽獎。
+        </small>
+      </section>
     </div>
   );
 }
@@ -582,10 +654,7 @@ export function CreateFirstEvent() {
         <button
           className="button button-dark"
           disabled={
-            busy ||
-            !name.trim() ||
-            !date ||
-            (!organizationId && !org.trim())
+            busy || !name.trim() || !date || (!organizationId && !org.trim())
           }
         >
           {busy ? "建立中…" : "建立活動"}

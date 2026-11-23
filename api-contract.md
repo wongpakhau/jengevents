@@ -26,7 +26,8 @@ POST /events/:eventId/seating {guestId,tableId:string|null,seat:number|null} -> 
 ## Merchant/receipts/settlements
 POST /events/:eventId/merchants {name} -> Merchant
 PATCH /events/:eventId/merchants/:id {active:boolean} -> Merchant
-POST /events/:eventId/receipts {merchantId,amountCents,reference:string} -> ReceiptIssued (owner/admin or own authorized merchant; 10% round half-up per transaction; expires24h; rule snapshot; no fake chances in request)
+POST /events/:eventId/purchase-code/resolve {code,merchantId} -> {guest:{id,name,ticket},expiresAt}; owner/admin/project_manager or own authorized active merchant, same-event short-lived consumption code only, no guest login token or PII in response.
+POST /events/:eventId/receipts {merchantId,amountCents,reference:string,purchaseCode?:string} -> ReceiptIssued (owner/admin/project_manager or own authorized merchant; 10% round half-up per transaction; expires24h; rule snapshot; no fake chances in request). With purchaseCode: status pending, intended guest bound, no guest login or receipt-claim token returned. Pending/rejected receipts do not count as sales, fees or chances; new legacy no-code issuance also starts pending and returns its existing receipt QR, then becomes valid on explicit guest claim. Historical valid receipts remain unchanged.
 POST /events/:eventId/receipts/:id/void {reason} -> Receipt (owner/admin; negate fee and ledger if safe, preserve audit; if included in previous draw snapshot mark drawException and don't silently alter draw)
 GET /events/:eventId/settlements -> Settlement[] owner/admin/project_manager see all merchants; merchant sees only their own event-scoped merchant. Server does not accept a merchant selector from the request. Private, no-store.
 POST /events/:eventId/payments {merchantId,amountCents,reference} -> Payment owner/admin/project_manager, no automatic charges
@@ -43,6 +44,13 @@ GET /public/events/:slug -> EventInfo safe public branding/settings
 POST /public/events/:slug/register {name,email?,phone?,consent:true} -> {guest,invitation} only if registrationOpen. No PII exposed by GET. Maxreasonable registration with rate limiting.
 POST /public/events/:slug/quick-names {sort?:'name'|'phone'} and POST /public/events/:slug/roster-names {consent:true,sort?:'name'|'phone'} -> {names:string[]} only. Default name sorting; phone sorting is performed server-side and does not return phone values or sorting keys, though it reveals the relative ordering of names by phone. Existing event, participant, consent and rate-limit restrictions remain in force.
 GET /guest with header X-Guest-Token -> GuestView (own guest/own receipts/revealed draws only)
+POST /guest/purchase-code {} with X-Guest-Token and Idempotency-Key -> {code,path,expiresAt}; purpose-scoped encrypted short-lived code, bound to event, guest and current invitation hash; no raw login capability, phone or email. Returned path /merchant#purchase=<code>.
+POST /guest/receipts/:id/decision {confirmed:boolean} with X-Guest-Token and Idempotency-Key -> ClaimResult; only intended guest, explicit confirm pending -> valid and atomic ledger award, reject pending -> rejected with no sales/chances. Same decision replay never duplicates credit; wrong guest, conflicting decision, void or expiry fail closed.
+POST /guest/claim-preview {token:receiptToken} with X-Guest-Token -> {receipt,merchantName}; read-only validation of legacy receipt before explicit customer confirmation, no mutation or credit.
 POST /guest/claim {token:receiptToken} with X-Guest-Token -> ClaimResult (single claim, same guest replay idempotent, cross guest409, cross event403, expired410; transaction and guest locks/atomicity). Per-transaction floor(amount/threshold); cumulative difference of floors per rule version, no duplicate credit.
 
 Guest URLs `/guest#invite=<token>`; receipt URLs `/guest#claim=<token>`; staff invitations `/join#invite=<token>`; registration `/register/:slug`. Hash avoids server/referrer token disclosure. Guest remembers its invite only in sessionStorage/localStorage by own choice; never treat receipt as guest identity. Display token hashes never. Frame QR code uses location.origin + returned relative path in browser only; server doesn't derive public URLs from req Host.
+
+正向春茗及新建完整活動的新消費規則：已確認消費跨筆累積，每滿 HK$500（50,000 分）得一次一般抽獎機會，餘額保留；歷史憑證仍依簽發時的 ruleVersion/threshold/accumulation 計算。單次 HK$1,000 現場利是抽獎仍是已簽到嘉賓每人等權一次。
+
+`/demo/admin`、`/demo/merchant`、`/demo/guest` 為隔離的前端角色示範，三個登入頁測試按鈕不會建立正式帳戶、正式 Cookie、授權或 API 登入。只使用瀏覽器示範命名空間，不寫入正式活動或抽獎資料；跨裝置測試須使用真正授權帳戶及正式流程。

@@ -33,18 +33,53 @@ import {
   registrationPhone,
 } from "../../shared/registration";
 import { merchantSettlement, accountingCsv } from "./accounting";
+import { issuePurchaseCode, readPurchaseCode } from "./purchase-code";
+import {
+  applyReceiptClaim,
+  assertReceiptDecision,
+  decideReceipt,
+} from "./purchase-confirmation";
 import { guestRosterCsv } from "./roster";
-import { validateRosterFields, guestSelfView, type RosterFields } from "./roster-fields";
-import { quickGuestNames, quickGuestSearch, claimQuickGuest, assertQuickNameIsNew } from "./quick-registration";
-import { matchRosterGuest, rosterMatchView, claimRosterGuest, searchRosterGuests, claimRosterSelectedGuest, listRosterGuestNames } from "./roster-match";
-import { CHAPTERS, type RosterIdentityInput, type RosterSearchInput, type RosterSelectionInput } from "../../shared/roster";
+import {
+  validateRosterFields,
+  guestSelfView,
+  type RosterFields,
+} from "./roster-fields";
+import {
+  quickGuestNames,
+  quickGuestSearch,
+  claimQuickGuest,
+  assertQuickNameIsNew,
+} from "./quick-registration";
+import {
+  matchRosterGuest,
+  rosterMatchView,
+  claimRosterGuest,
+  searchRosterGuests,
+  claimRosterSelectedGuest,
+  listRosterGuestNames,
+} from "./roster-match";
+import {
+  CHAPTERS,
+  type RosterIdentityInput,
+  type RosterSearchInput,
+  type RosterSelectionInput,
+} from "../../shared/roster";
 import { planSeatingImport, type SeatingImportRow } from "./seating-import";
 import { availableChances } from "./engine";
 import { SESSION_EVENTS_SQL } from "./session-query";
 import { systemRoleFor, accessDirectory } from "./system-access";
 import { isSystemOwner } from "./access-policy";
-import { emptyProgram, slugFor, defaultEvent, newAggregate } from "./event-defaults";
-import { listPendingOwnership, claimPendingOwnership } from "./pending-ownership";
+import {
+  emptyProgram,
+  slugFor,
+  defaultEvent,
+  newAggregate,
+} from "./event-defaults";
+import {
+  listPendingOwnership,
+  claimPendingOwnership,
+} from "./pending-ownership";
 import { HttpError } from "../../shared/_core/errors";
 import { sdk, type AuthenticatedUser } from "../_core/sdk";
 import { readParticipantSession } from "../_core/participantAuth";
@@ -60,9 +95,7 @@ import {
   assertSeatChange,
   buildCheckedInDrawSnapshot,
   buildDrawSnapshot,
-  cumulativeClaimDelta,
   feeForCents,
-  getLedgerBalance,
   integerCents,
   publicEventInfo,
   receiptChances,
@@ -199,9 +232,7 @@ function bodyObject(req: Request): Record<string, unknown> {
   return req.body as Record<string, unknown>;
 }
 
-function nameDirectorySort(
-  body: Record<string, unknown>
-): "name" | "phone" {
+function nameDirectorySort(body: Record<string, unknown>): "name" | "phone" {
   if (body.sort === undefined || body.sort === "name") return "name";
   if (body.sort === "phone") return "phone";
   throw new DomainError(400, "VALIDATION_ERROR", "名單排序方式不正確");
@@ -361,7 +392,8 @@ function parseAggregate(raw: string): EventAggregate {
     parsed.event.registrationCheckIn ??= false;
     parsed.event.rosterClaimEnabled ??= false;
     parsed.event.rosterChapters ??= [];
-    if (parsed.event.mode !== "attendance") parsed.event.rosterClaimEnabled = false;
+    if (parsed.event.mode !== "attendance")
+      parsed.event.rosterClaimEnabled = false;
     for (const guest of parsed.guests) {
       guest.group ??= "";
       guest.note ??= "";
@@ -382,15 +414,39 @@ function quickAggregate(row: PublicEventRow): EventAggregate {
   // Preserve absent-field legacy defaults, but never reinterpret explicit
   // malformed history as empty before the quick identity safety check.
   let raw: EventAggregate;
-  try { raw = JSON.parse(row.event_state); }
-  catch { throw new DomainError(503, "EVENT_STATE_UNAVAILABLE", "活動資料暫時無法安全讀取"); }
-  if (!raw?.event || (raw.event.mode !== "attendance" &&
-    ["receipts", "draws", "ledger"].some(field =>
-      Object.prototype.hasOwnProperty.call(raw, field) && !Array.isArray(raw[field as keyof EventAggregate]))))
-    throw new DomainError(503, "EVENT_STATE_UNAVAILABLE", "活動資料暫時無法安全讀取");
+  try {
+    raw = JSON.parse(row.event_state);
+  } catch {
+    throw new DomainError(
+      503,
+      "EVENT_STATE_UNAVAILABLE",
+      "活動資料暫時無法安全讀取"
+    );
+  }
+  if (
+    !raw?.event ||
+    (raw.event.mode !== "attendance" &&
+      ["receipts", "draws", "ledger"].some(
+        field =>
+          Object.prototype.hasOwnProperty.call(raw, field) &&
+          !Array.isArray(raw[field as keyof EventAggregate])
+      ))
+  )
+    throw new DomainError(
+      503,
+      "EVENT_STATE_UNAVAILABLE",
+      "活動資料暫時無法安全讀取"
+    );
   const aggregate = parseAggregate(row.event_state);
-  if (aggregate.event.id !== row.id || aggregate.event.tenantId !== row.tenant_id)
-    throw new DomainError(503, "EVENT_STATE_UNAVAILABLE", "活動資料暫時無法安全讀取");
+  if (
+    aggregate.event.id !== row.id ||
+    aggregate.event.tenantId !== row.tenant_id
+  )
+    throw new DomainError(
+      503,
+      "EVENT_STATE_UNAVAILABLE",
+      "活動資料暫時無法安全讀取"
+    );
   return aggregate;
 }
 
@@ -571,7 +627,10 @@ async function withLockedStaffEvent<T>(
   action: string,
   allowed: readonly Access["role"][],
   work: (context: LockedContext) => Promise<T>,
-  options: { idempotent?: boolean } = {}
+  options: {
+    idempotent?: boolean;
+    beforeReplay?: (context: LockedContext) => Promise<void>;
+  } = {}
 ): Promise<T> {
   const key =
     options.idempotent === false ? undefined : requireIdempotencyKey(req);
@@ -579,9 +638,11 @@ async function withLockedStaffEvent<T>(
     const row = await lockedEventRow(connection, eventId);
     assertBoundEvent(row);
     const aggregate = parseAggregate(row.event_state);
+    assertEventScope(row.id, aggregate.event.id);
     const access = requireRole(await accessFor(connection, row, user), allowed);
     const now = new Date();
     const context: LockedContext = { connection, row, aggregate, access, now };
+    await options.beforeReplay?.(context);
     if (!key) {
       const response = await work(context);
       await saveAggregate(connection, row.id, aggregate, now);
@@ -671,23 +732,44 @@ function assertInviteUsable(row: InviteRow, now: Date): void {
   }
 }
 
-function assertExclusionMode(event: EventInfo, guest: Pick<Guest, "excludedFromEvent">): void {
+function assertExclusionMode(
+  event: EventInfo,
+  guest: Pick<Guest, "excludedFromEvent">
+): void {
   if (guest.excludedFromEvent === true && event.mode !== "attendance")
     throw new DomainError(409, "ATTENDANCE_ONLY", "保留不參會只適用於典禮模式");
 }
 
 function assertParticipating(event: EventInfo, guest: Guest): void {
   if (isExcludedFromEvent(event, guest))
-    throw new DomainError(409, "GUEST_EXCLUDED", "此紀錄保留但不參會，請先解除保留");
+    throw new DomainError(
+      409,
+      "GUEST_EXCLUDED",
+      "此紀錄保留但不參會，請先解除保留"
+    );
 }
 
-function assertActiveContactUnique(aggregate: EventAggregate, next: Guest | Parameters<typeof createGuest>[1]): void {
+function assertActiveContactUnique(
+  aggregate: EventAggregate,
+  next: Guest | Parameters<typeof createGuest>[1]
+): void {
   if (isExcludedFromEvent(aggregate.event, next)) return;
   const id = "id" in next ? next.id : undefined;
-  if (eventGuests(aggregate.event, aggregate.guests).some(guest =>
-    guest.id !== id && ((next.email && guest.email.toLowerCase() === next.email.toLowerCase()) ||
-      (next.phone && phoneIdentity(guest.phone) === phoneIdentity(next.phone)))))
-    throw new DomainError(409, "DUPLICATE_GUEST", "聯絡資料已登記於活動，解除保留前須先核對");
+  if (
+    eventGuests(aggregate.event, aggregate.guests).some(
+      guest =>
+        guest.id !== id &&
+        ((next.email &&
+          guest.email.toLowerCase() === next.email.toLowerCase()) ||
+          (next.phone &&
+            phoneIdentity(guest.phone) === phoneIdentity(next.phone)))
+    )
+  )
+    throw new DomainError(
+      409,
+      "DUPLICATE_GUEST",
+      "聯絡資料已登記於活動，解除保留前須先核對"
+    );
 }
 
 function createGuest(
@@ -703,8 +785,15 @@ function createGuest(
   } & RosterFields,
   now: Date
 ): Guest {
-  if(input.rosterKey && aggregate.guests.some(g=>g.rosterKey===input.rosterKey))
-    throw new DomainError(409,"ROSTER_KEY_EXISTS","此名單編號已存在，請編輯現有嘉賓");
+  if (
+    input.rosterKey &&
+    aggregate.guests.some(g => g.rosterKey === input.rosterKey)
+  )
+    throw new DomainError(
+      409,
+      "ROSTER_KEY_EXISTS",
+      "此名單編號已存在，請編輯現有嘉賓"
+    );
   assertExclusionMode(aggregate.event, input);
   assertActiveContactUnique(aggregate, input);
   const tickets = new Set(aggregate.guests.map(guest => guest.ticket));
@@ -725,7 +814,8 @@ function createGuest(
     tenantId: aggregate.event.tenantId,
     eventId: aggregate.event.id,
     ...input,
-    rosterKey: input.rosterKey || (input.chapter ? `manual:${randomUUID()}` : undefined),
+    rosterKey:
+      input.rosterKey || (input.chapter ? `manual:${randomUUID()}` : undefined),
     name: input.name,
     email: input.email,
     phone: input.phone,
@@ -810,24 +900,50 @@ function publicGuestInput(body: Record<string, unknown>, event: EventInfo) {
   });
 }
 
-function rosterIdentityInput(body:Record<string,unknown>):RosterIdentityInput {
-  const classes=validateClass(body.classType,body.classNumber,false);
-  let phone:string;
-  try {phone=registrationPhone(body.phone);} catch(e){throw new DomainError(400,"INVALID_PHONE",e instanceof Error?e.message:"電話格式不正確");}
-  return {name:text(body.name,"嘉賓姓名",{max:120})!,chapter:text(body.chapter,"分會",{max:120})!,invitedBy:text(body.invitedBy,"邀請人",{optional:true,min:0,max:120})||"",phone,...classes};
+function rosterIdentityInput(
+  body: Record<string, unknown>
+): RosterIdentityInput {
+  const classes = validateClass(body.classType, body.classNumber, false);
+  let phone: string;
+  try {
+    phone = registrationPhone(body.phone);
+  } catch (e) {
+    throw new DomainError(
+      400,
+      "INVALID_PHONE",
+      e instanceof Error ? e.message : "電話格式不正確"
+    );
+  }
+  return {
+    name: text(body.name, "嘉賓姓名", { max: 120 })!,
+    chapter: text(body.chapter, "分會", { max: 120 })!,
+    invitedBy:
+      text(body.invitedBy, "邀請人", { optional: true, min: 0, max: 120 }) ||
+      "",
+    phone,
+    ...classes,
+  };
 }
 
 function rosterSearchInput(body: Record<string, unknown>): RosterSearchInput {
   return {
     name: text(body.name, "嘉賓姓名", { max: 120 })!,
-    chapter: text(body.chapter, "自報分會", { optional: true, min: 0, max: 120 }) || "",
-    invitedBy: text(body.invitedBy, "邀請人", { optional: true, min: 0, max: 120 }) || "",
-    classType: text(body.classType, "班種", { optional: true, min: 0, max: 16 }) || "",
-    classNumber: text(body.classNumber, "班號", { optional: true, min: 0, max: 16 }) || "",
+    chapter:
+      text(body.chapter, "自報分會", { optional: true, min: 0, max: 120 }) ||
+      "",
+    invitedBy:
+      text(body.invitedBy, "邀請人", { optional: true, min: 0, max: 120 }) ||
+      "",
+    classType:
+      text(body.classType, "班種", { optional: true, min: 0, max: 16 }) || "",
+    classNumber:
+      text(body.classNumber, "班號", { optional: true, min: 0, max: 16 }) || "",
   };
 }
 
-function rosterSelectionInput(body: Record<string, unknown>): RosterSelectionInput {
+function rosterSelectionInput(
+  body: Record<string, unknown>
+): RosterSelectionInput {
   const fields = rosterSearchInput(body);
   try {
     return { ...fields, phone: registrationPhone(body.phone) };
@@ -974,8 +1090,11 @@ function stateFor(
   };
 }
 
-function assertBoundEvent(row: { owner_user_id: number | null } | undefined): void {
-  if (!row || row.owner_user_id == null) throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
+function assertBoundEvent(
+  row: { owner_user_id: number | null } | undefined
+): void {
+  if (!row || row.owner_user_id == null)
+    throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
 }
 
 async function readEvent(eventId: string): Promise<PublicEventRow> {
@@ -984,7 +1103,8 @@ async function readEvent(eventId: string): Promise<PublicEventRow> {
     [eventId]
   );
   const row = rows[0];
-  if (!row || row.owner_user_id == null) throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
+  if (!row || row.owner_user_id == null)
+    throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
   return row;
 }
 
@@ -1010,6 +1130,165 @@ function ensureMerchantScope(access: Access, merchantId: string): void {
   }
 }
 
+type GuestContext = {
+  connection: PoolConnection;
+  row: EventRow;
+  aggregate: EventAggregate;
+  guest: Guest;
+  invite: InviteRow;
+  now: Date;
+};
+
+function guestBearer(req: Request): string {
+  const token = req.get("X-Guest-Token");
+  if (!token || token.length > 512 || token.startsWith("purchase-v1."))
+    throw new DomainError(401, "GUEST_UNAUTHORIZED", "請提供有效嘉賓憑證");
+  return token;
+}
+
+function assertGuestInvite(
+  invite: InviteRow | undefined,
+  now: Date
+): asserts invite is InviteRow {
+  if (
+    !invite ||
+    invite.kind !== "guest" ||
+    invite.revoked_at ||
+    !invite.guest_id
+  )
+    throw new DomainError(401, "GUEST_UNAUTHORIZED", "請提供有效嘉賓憑證");
+  if (invite.expires_at && !iso(invite.expires_at))
+    throw new DomainError(401, "GUEST_UNAUTHORIZED", "請提供有效嘉賓憑證");
+  assertInviteUsable(invite, now);
+}
+
+function boundGuest(aggregate: EventAggregate, guestId: string): Guest {
+  const guest = aggregate.guests.find(item => item.id === guestId);
+  if (
+    !guest ||
+    guest.eventId !== aggregate.event.id ||
+    guest.tenantId !== aggregate.event.tenantId ||
+    isExcludedFromEvent(aggregate.event, guest)
+  )
+    throw new DomainError(401, "GUEST_UNAUTHORIZED", "請提供有效嘉賓憑證");
+  return guest;
+}
+
+/** Lock the event before its invites, matching staff rotation and issuance lock order. */
+async function withLockedGuestEvent<T>(
+  req: Request,
+  work: (context: GuestContext) => Promise<T>
+): Promise<T> {
+  const hash = sha256(guestBearer(req));
+  const invites = await readRows<InviteRow>(
+    "SELECT * FROM ef_invites WHERE token_hash = ? LIMIT 1",
+    [hash]
+  );
+  assertGuestInvite(invites[0], new Date());
+  const eventId = invites[0].event_id;
+  return withTransaction(async connection => {
+    const row = await lockedEventRow(connection, eventId);
+    assertBoundEvent(row);
+    const aggregate = parseAggregate(row.event_state);
+    assertEventScope(row.id, aggregate.event.id);
+    const now = new Date();
+    const [current] = await connection.query<InviteRow[]>(
+      "SELECT * FROM ef_invites WHERE token_hash = ? FOR UPDATE",
+      [hash]
+    );
+    const invite = current[0];
+    assertGuestInvite(invite, now);
+    assertEventScope(row.id, invite.event_id);
+    const guest = boundGuest(aggregate, invite.guest_id!);
+    return work({ connection, row, aggregate, guest, invite, now });
+  });
+}
+
+async function resolvePurchaseGuest(
+  connection: PoolConnection,
+  aggregate: EventAggregate,
+  code: string,
+  now: Date
+) {
+  const payload = readPurchaseCode(code, aggregate.event.id, now);
+  const [invites] = await connection.query<InviteRow[]>(
+    "SELECT * FROM ef_invites WHERE token_hash = ? FOR UPDATE",
+    [payload.guestInviteHash]
+  );
+  const invite = invites[0];
+  assertGuestInvite(invite, now);
+  if (
+    invite.token_hash !== payload.guestInviteHash ||
+    invite.event_id !== payload.eventId ||
+    invite.guest_id !== payload.guestId
+  )
+    throw new DomainError(
+      403,
+      "PURCHASE_CODE_SCOPE",
+      "消費識別碼與嘉賓憑證不符"
+    );
+  return {
+    guest: boundGuest(aggregate, payload.guestId),
+    expiresAt: payload.expiresAt,
+  };
+}
+
+async function legacyReceipt(context: GuestContext, token: string) {
+  const { connection, aggregate, guest, now } = context;
+  const [invites] = await connection.query<InviteRow[]>(
+    "SELECT * FROM ef_invites WHERE token_hash = ? FOR UPDATE",
+    [sha256(token)]
+  );
+  const invite = invites[0];
+  if (
+    !invite ||
+    invite.kind !== "receipt" ||
+    !invite.guest_id ||
+    invite.revoked_at
+  )
+    throw new DomainError(404, "RECEIPT_TOKEN_NOT_FOUND", "找不到有效消費憑證");
+  assertEventScope(aggregate.event.id, invite.event_id);
+  const receipt = aggregate.receipts.find(item => item.id === invite.guest_id);
+  if (!receipt)
+    throw new DomainError(503, "RECEIPT_STATE_INVALID", "消費憑證資料不完整");
+  assertEventScope(aggregate.event.id, receipt.eventId);
+  if (receipt.status === "void")
+    throw new DomainError(409, "RECEIPT_VOID", "此消費憑證已作廢");
+  if (receipt.confirmationRequired)
+    throw new DomainError(
+      409,
+      "RECEIPT_CONFIRMATION_REQUIRED",
+      "請在自己的待確認消費清單核對此憑證"
+    );
+  if (
+    (receipt.intendedGuestId && receipt.intendedGuestId !== guest.id) ||
+    (receipt.guestId && receipt.guestId !== guest.id) ||
+    (invite.claimed_by_guest_id && invite.claimed_by_guest_id !== guest.id)
+  )
+    throw new DomainError(
+      409,
+      "RECEIPT_CLAIMED_BY_OTHER",
+      "此消費憑證已由其他嘉賓領取"
+    );
+  if (
+    (receipt.status !== "valid" && receipt.status !== "pending") ||
+    (receipt.status === "pending" &&
+      (receipt.guestId !== null ||
+        receipt.claimedAt ||
+        receipt.chances !== 0)) ||
+    (invite.consumed_at && receipt.guestId !== guest.id)
+  )
+    throw new DomainError(409, "RECEIPT_STATE_INVALID", "消費憑證狀態不正確");
+  const expiry = iso(invite.expires_at);
+  if (
+    (expiry && Date.parse(expiry) <= now.getTime()) ||
+    !Number.isFinite(Date.parse(receipt.expiresAt)) ||
+    Date.parse(receipt.expiresAt) <= now.getTime()
+  )
+    throw new DomainError(410, "RECEIPT_EXPIRED", "消費憑證已過期");
+  return { receipt, invite };
+}
+
 function hongKongCalendarDate(value: string): string | null {
   if (/^\d{4}-\d{2}-\d{2}$/u.test(value)) return value;
   const parsed = new Date(value);
@@ -1024,56 +1303,119 @@ function hongKongCalendarDate(value: string): string | null {
 
 function assertPositiveSpringDrawReady(aggregate: EventAggregate): Prize {
   if (aggregate.event.status === "closed") {
-    throw new DomainError(409, "SPECIAL_DRAW_EVENT_CLOSED", "活動已關閉，不可進行正向春茗現場抽獎");
+    throw new DomainError(
+      409,
+      "SPECIAL_DRAW_EVENT_CLOSED",
+      "活動已關閉，不可進行正向春茗現場抽獎"
+    );
   }
   if (aggregate.event.status !== "draft" && aggregate.event.status !== "live") {
-    throw new DomainError(409, "SPECIAL_DRAW_EVENT_STATE_INVALID", "活動狀態不容許進行正向春茗現場抽獎");
+    throw new DomainError(
+      409,
+      "SPECIAL_DRAW_EVENT_STATE_INVALID",
+      "活動狀態不容許進行正向春茗現場抽獎"
+    );
   }
   if (hongKongCalendarDate(aggregate.event.date) !== "2027-01-31") {
-    throw new DomainError(409, "SPECIAL_DRAW_EVENT_DATE_MISMATCH", "活動日期與正向春茗現場抽獎不一致");
+    throw new DomainError(
+      409,
+      "SPECIAL_DRAW_EVENT_DATE_MISMATCH",
+      "活動日期與正向春茗現場抽獎不一致"
+    );
   }
 
   const specialName = "HK$1,000 利是";
-  const identityPrizes = aggregate.prizes.filter(prize =>
-    prize.id === POSITIVE_SPRING_RESERVED_PRIZE_ID ||
-    prize.key === POSITIVE_SPRING_RED_PACKET_KEY ||
-    prize.name === specialName
+  const identityPrizes = aggregate.prizes.filter(
+    prize =>
+      prize.id === POSITIVE_SPRING_RESERVED_PRIZE_ID ||
+      prize.key === POSITIVE_SPRING_RED_PACKET_KEY ||
+      prize.name === specialName
   );
   if (identityPrizes.length > 1) {
-    throw new DomainError(409, "SPECIAL_DRAW_PRIZE_INVALID", "正向春茗利是獎項識別不唯一，已停止抽獎");
+    throw new DomainError(
+      409,
+      "SPECIAL_DRAW_PRIZE_INVALID",
+      "正向春茗利是獎項識別不唯一，已停止抽獎"
+    );
   }
   let prize = identityPrizes[0];
-  const historicalDraws = aggregate.draws.filter(draw =>
-    draw.specialKey === POSITIVE_SPRING_RED_PACKET_KEY ||
-    draw.prizeId === POSITIVE_SPRING_RESERVED_PRIZE_ID ||
-    draw.prizeName === specialName
+  const historicalDraws = aggregate.draws.filter(
+    draw =>
+      draw.specialKey === POSITIVE_SPRING_RED_PACKET_KEY ||
+      draw.prizeId === POSITIVE_SPRING_RESERVED_PRIZE_ID ||
+      draw.prizeName === specialName
   );
   if (!prize) {
     if (historicalDraws.length > 0) {
-      throw new DomainError(409, "SPECIAL_DRAW_PRIZE_INVALID", "正向春茗利是歷史抽獎缺少保留獎項，已停止抽獎");
+      throw new DomainError(
+        409,
+        "SPECIAL_DRAW_PRIZE_INVALID",
+        "正向春茗利是歷史抽獎缺少保留獎項，已停止抽獎"
+      );
     }
-    prize = { id: POSITIVE_SPRING_RESERVED_PRIZE_ID, name: specialName, key: POSITIVE_SPRING_RED_PACKET_KEY, drawId: null };
+    prize = {
+      id: POSITIVE_SPRING_RESERVED_PRIZE_ID,
+      name: specialName,
+      key: POSITIVE_SPRING_RED_PACKET_KEY,
+      drawId: null,
+    };
     aggregate.prizes.push(prize);
   }
-  if (prize.id !== POSITIVE_SPRING_RESERVED_PRIZE_ID || prize.key !== POSITIVE_SPRING_RED_PACKET_KEY || prize.name !== specialName) {
-    throw new DomainError(409, "SPECIAL_DRAW_PRIZE_INVALID", "正向春茗利是獎項資料已被修改，已停止抽獎");
+  if (
+    prize.id !== POSITIVE_SPRING_RESERVED_PRIZE_ID ||
+    prize.key !== POSITIVE_SPRING_RED_PACKET_KEY ||
+    prize.name !== specialName
+  ) {
+    throw new DomainError(
+      409,
+      "SPECIAL_DRAW_PRIZE_INVALID",
+      "正向春茗利是獎項資料已被修改，已停止抽獎"
+    );
   }
-  const linkedDraws = aggregate.draws.filter(draw =>
-    draw.specialKey === POSITIVE_SPRING_RED_PACKET_KEY ||
-    draw.prizeId === POSITIVE_SPRING_RESERVED_PRIZE_ID ||
-    draw.prizeName === specialName
+  const linkedDraws = aggregate.draws.filter(
+    draw =>
+      draw.specialKey === POSITIVE_SPRING_RED_PACKET_KEY ||
+      draw.prizeId === POSITIVE_SPRING_RESERVED_PRIZE_ID ||
+      draw.prizeName === specialName
   );
   if (prize.drawId) {
     const linkedDraw = aggregate.draws.find(draw => draw.id === prize.drawId);
-    if (!linkedDraw || linkedDraw.prizeId !== prize.id || linkedDraw.specialKey !== POSITIVE_SPRING_RED_PACKET_KEY || linkedDraw.prizeName !== specialName || linkedDraws.length !== 1) {
-      throw new DomainError(409, "SPECIAL_DRAW_PRIZE_INVALID", "正向春茗利是獎項關聯不完整，已停止抽獎");
+    if (
+      !linkedDraw ||
+      linkedDraw.prizeId !== prize.id ||
+      linkedDraw.specialKey !== POSITIVE_SPRING_RED_PACKET_KEY ||
+      linkedDraw.prizeName !== specialName ||
+      linkedDraws.length !== 1
+    ) {
+      throw new DomainError(
+        409,
+        "SPECIAL_DRAW_PRIZE_INVALID",
+        "正向春茗利是獎項關聯不完整，已停止抽獎"
+      );
     }
-    throw new DomainError(409, "SPECIAL_DRAW_ALREADY_DONE", "正向春茗利是已完成抽獎");
+    throw new DomainError(
+      409,
+      "SPECIAL_DRAW_ALREADY_DONE",
+      "正向春茗利是已完成抽獎"
+    );
   }
   if (linkedDraws.length > 0) {
-    if (linkedDraws.length === 1 && linkedDraws[0].prizeId === prize.id && linkedDraws[0].specialKey === POSITIVE_SPRING_RED_PACKET_KEY && linkedDraws[0].prizeName === specialName)
-      throw new DomainError(409, "SPECIAL_DRAW_ALREADY_DONE", "正向春茗利是已完成抽獎");
-    throw new DomainError(409, "SPECIAL_DRAW_PRIZE_INVALID", "正向春茗利是獎項關聯不完整，已停止抽獎");
+    if (
+      linkedDraws.length === 1 &&
+      linkedDraws[0].prizeId === prize.id &&
+      linkedDraws[0].specialKey === POSITIVE_SPRING_RED_PACKET_KEY &&
+      linkedDraws[0].prizeName === specialName
+    )
+      throw new DomainError(
+        409,
+        "SPECIAL_DRAW_ALREADY_DONE",
+        "正向春茗利是已完成抽獎"
+      );
+    throw new DomainError(
+      409,
+      "SPECIAL_DRAW_PRIZE_INVALID",
+      "正向春茗利是獎項關聯不完整，已停止抽獎"
+    );
   }
   return prize;
 }
@@ -1148,22 +1490,30 @@ export function registerEventFlowRoutes(app: Express): void {
 
   // No caller-supplied identity or target: the fixed initializer pair is claimed
   // only by the currently authenticated, verified allowlisted Google account.
-  router.get("/system/pending-ownership", route(async (req, res) => {
-    const user = await authenticated(req);
-    res.set("Cache-Control", "no-store");
-    res.json(await listPendingOwnership(user));
-  }));
-  router.post("/system/pending-ownership/claim", route(async (req, res) => {
-    if (!req.get("origin")) throw new DomainError(403, "ORIGIN_REQUIRED", "請從本站操作");
-    const fetchSite = req.get("sec-fetch-site");
-    if (fetchSite && fetchSite !== "same-origin")
-      throw new DomainError(403, "ORIGIN_FORBIDDEN", "不接受跨站請求");
-    const user = await authenticatedMutation(req);
-    const body = bodyObject(req);
-    if (Object.keys(body).length) throw new DomainError(400, "INVALID_BODY", "此操作不接受額外資料");
-    res.set("Cache-Control", "no-store");
-    res.json(await claimPendingOwnership(user));
-  }));
+  router.get(
+    "/system/pending-ownership",
+    route(async (req, res) => {
+      const user = await authenticated(req);
+      res.set("Cache-Control", "no-store");
+      res.json(await listPendingOwnership(user));
+    })
+  );
+  router.post(
+    "/system/pending-ownership/claim",
+    route(async (req, res) => {
+      if (!req.get("origin"))
+        throw new DomainError(403, "ORIGIN_REQUIRED", "請從本站操作");
+      const fetchSite = req.get("sec-fetch-site");
+      if (fetchSite && fetchSite !== "same-origin")
+        throw new DomainError(403, "ORIGIN_FORBIDDEN", "不接受跨站請求");
+      const user = await authenticatedMutation(req);
+      const body = bodyObject(req);
+      if (Object.keys(body).length)
+        throw new DomainError(400, "INVALID_BODY", "此操作不接受額外資料");
+      res.set("Cache-Control", "no-store");
+      res.json(await claimPendingOwnership(user));
+    })
+  );
 
   router.get(
     "/system/access",
@@ -1589,11 +1939,23 @@ export function registerEventFlowRoutes(app: Express): void {
               "自助到場設定"
             );
           if (body.rosterClaimEnabled !== undefined) {
-            const enabled=bool(body.rosterClaimEnabled,"預排名單認領設定");
-            if(enabled && event.mode!=="attendance")throw new DomainError(409,"FEATURE_DISABLED","只有簽到典禮可開啟預排名單核對");
-            event.rosterClaimEnabled=enabled;
-            event.rosterChapters=[...new Set(aggregate.guests.map(g=>g.chapter?.trim()).filter((v):v is string=>Boolean(v)))];
-            if(!event.rosterChapters.length)event.rosterChapters=[...CHAPTERS];
+            const enabled = bool(body.rosterClaimEnabled, "預排名單認領設定");
+            if (enabled && event.mode !== "attendance")
+              throw new DomainError(
+                409,
+                "FEATURE_DISABLED",
+                "只有簽到典禮可開啟預排名單核對"
+              );
+            event.rosterClaimEnabled = enabled;
+            event.rosterChapters = [
+              ...new Set(
+                aggregate.guests
+                  .map(g => g.chapter?.trim())
+                  .filter((v): v is string => Boolean(v))
+              ),
+            ];
+            if (!event.rosterChapters.length)
+              event.rosterChapters = [...CHAPTERS];
           }
           if (body.excludeWinners !== undefined)
             event.excludeWinners = bool(body.excludeWinners, "排除得獎者設定");
@@ -1984,7 +2346,11 @@ export function registerEventFlowRoutes(app: Express): void {
       for (const input of rows) {
         if (input.rosterKey) {
           if (rosterKeys.has(input.rosterKey))
-            throw new DomainError(409, "ROSTER_KEY_EXISTS", "匯入資料含重複名單編號");
+            throw new DomainError(
+              409,
+              "ROSTER_KEY_EXISTS",
+              "匯入資料含重複名單編號"
+            );
           rosterKeys.add(input.rosterKey);
         }
       }
@@ -1996,18 +2362,40 @@ export function registerEventFlowRoutes(app: Express): void {
         ["owner", "admin", "project_manager", "guest_manager"],
         async ({ connection, aggregate, now }) => {
           const invitations: { guest: Guest; invitation: Invitation }[] = [];
-          const staged = { ...aggregate, guests: aggregate.guests.map(guest => ({ ...guest })) };
+          const staged = {
+            ...aggregate,
+            guests: aggregate.guests.map(guest => ({ ...guest })),
+          };
           const imported: Guest[] = [];
-          let created=0,updated=0;
+          let created = 0,
+            updated = 0;
           for (const input of rows) {
             assertExclusionMode(aggregate.event, input);
-            let guest=input.rosterKey?staged.guests.find(g=>g.rosterKey===input.rosterKey):undefined;
-            if(guest){
-              const next={...guest,...input,phone:input.phone||guest.phone,email:input.email||guest.email,classType:input.classType||guest.classType,classNumber:input.classType?input.classNumber:guest.classNumber};
+            let guest = input.rosterKey
+              ? staged.guests.find(g => g.rosterKey === input.rosterKey)
+              : undefined;
+            if (guest) {
+              const next = {
+                ...guest,
+                ...input,
+                phone: input.phone || guest.phone,
+                email: input.email || guest.email,
+                classType: input.classType || guest.classType,
+                classNumber: input.classType
+                  ? input.classNumber
+                  : guest.classNumber,
+              };
               assertActiveContactUnique(staged, next);
-              if (isExcludedFromEvent(aggregate.event, next)) { next.tableId=null; next.seat=null; }
-              Object.assign(guest,next);updated++;
-            }else{guest=createGuest(staged,input,now);created++;}
+              if (isExcludedFromEvent(aggregate.event, next)) {
+                next.tableId = null;
+                next.seat = null;
+              }
+              Object.assign(guest, next);
+              updated++;
+            } else {
+              guest = createGuest(staged, input, now);
+              created++;
+            }
             imported.push(guest);
           }
           aggregate.guests = staged.guests;
@@ -2072,13 +2460,27 @@ export function registerEventFlowRoutes(app: Express): void {
               )
             );
           }
-          Object.assign(next,validateRosterFields(body));
+          Object.assign(next, validateRosterFields(body));
           // A legacy full-mode flag remains inert; only reject newly setting true.
-          if (body.excludedFromEvent !== undefined) assertExclusionMode(aggregate.event, next);
-          if (isExcludedFromEvent(aggregate.event, next)) { next.tableId=null; next.seat=null; }
-          if(next.chapter && !next.rosterKey) next.rosterKey=`manual:${next.id}`;
-          if (next.rosterKey && aggregate.guests.some(item => item.id !== next.id && item.rosterKey === next.rosterKey))
-            throw new DomainError(409, "ROSTER_KEY_EXISTS", "此名單編號已存在，請編輯現有嘉賓");
+          if (body.excludedFromEvent !== undefined)
+            assertExclusionMode(aggregate.event, next);
+          if (isExcludedFromEvent(aggregate.event, next)) {
+            next.tableId = null;
+            next.seat = null;
+          }
+          if (next.chapter && !next.rosterKey)
+            next.rosterKey = `manual:${next.id}`;
+          if (
+            next.rosterKey &&
+            aggregate.guests.some(
+              item => item.id !== next.id && item.rosterKey === next.rosterKey
+            )
+          )
+            throw new DomainError(
+              409,
+              "ROSTER_KEY_EXISTS",
+              "此名單編號已存在，請編輯現有嘉賓"
+            );
           if (body.group !== undefined)
             next.group = text(body.group, "嘉賓分組", { min: 0, max: 120 })!;
           if (body.note !== undefined)
@@ -2333,11 +2735,16 @@ export function registerEventFlowRoutes(app: Express): void {
             body.seat === null
               ? null
               : finiteNumber(body.seat, "座位", 1, 12, true);
-          assertSeatChange(aggregate.guests, aggregate.tables, {
-            guestId,
-            tableId,
-            seat,
-          }, aggregate.event.mode);
+          assertSeatChange(
+            aggregate.guests,
+            aggregate.tables,
+            {
+              guestId,
+              tableId,
+              seat,
+            },
+            aggregate.event.mode
+          );
           const index = aggregate.guests.findIndex(
             guest => guest.id === guestId
           );
@@ -2514,10 +2921,66 @@ export function registerEventFlowRoutes(app: Express): void {
   );
 
   router.post(
+    "/events/:eventId/purchase-code/resolve",
+    route(async (req, res) => {
+      const user = await authenticatedMutation(req);
+      const body = bodyObject(req);
+      const response = await withTransaction(async connection => {
+        const row = await lockedEventRow(connection, req.params.eventId);
+        assertBoundEvent(row);
+        const aggregate = parseAggregate(row.event_state);
+        assertEventScope(row.id, aggregate.event.id);
+        const access = requireRole(await accessFor(connection, row, user), [
+          "owner",
+          "admin",
+          "project_manager",
+          "merchant",
+        ]);
+        assertFeatureEnabled(aggregate.event, "commerce");
+        const merchantId = text(body.merchantId, "商戶", { max: 36 })!;
+        ensureMerchantScope(access, merchantId);
+        if (
+          !aggregate.merchants.some(
+            item =>
+              item.id === merchantId &&
+              item.active &&
+              item.eventId === aggregate.event.id &&
+              item.tenantId === aggregate.event.tenantId
+          )
+        )
+          throw new DomainError(409, "MERCHANT_INACTIVE", "商戶不存在或未啟用");
+        assertRateLimit(
+          "purchase-code-resolve",
+          `user:${user.id}`,
+          120,
+          60 * 1000
+        );
+        const resolved = await resolvePurchaseGuest(
+          connection,
+          aggregate,
+          text(body.code, "消費識別碼", { max: 2048 })!,
+          new Date()
+        );
+        return {
+          guest: {
+            id: resolved.guest.id,
+            name: resolved.guest.name,
+            ticket: resolved.guest.ticket,
+          },
+          expiresAt: resolved.expiresAt,
+        };
+      });
+      res.setHeader("Cache-Control", "private, no-store");
+      res.json(response);
+    })
+  );
+
+  router.post(
     "/events/:eventId/receipts",
     route(async (req, res) => {
       const user = await authenticatedMutation(req);
       const body = bodyObject(req);
+      let intendedGuest: Guest | undefined;
       const response = await withLockedStaffEvent(
         req,
         user,
@@ -2559,7 +3022,14 @@ export function registerEventFlowRoutes(app: Express): void {
             merchantId,
             amountCents,
             feeCents: feeForCents(amountCents),
-            status: "valid",
+            status: "pending",
+            merchantName: merchant.name,
+            ...(intendedGuest
+              ? {
+                  intendedGuestId: intendedGuest.id,
+                  confirmationRequired: true,
+                }
+              : {}),
             guestId: null,
             claimedAt: null,
             createdAt: nowIso(now),
@@ -2571,6 +3041,22 @@ export function registerEventFlowRoutes(app: Express): void {
             chances: 0,
           };
           aggregate.receipts.push(receipt);
+          if (intendedGuest) {
+            addAudit(
+              aggregate,
+              "receipt.issued_pending",
+              `user:${user.id}`,
+              "已發出待嘉賓確認消費憑證",
+              now
+            );
+            return {
+              receipt,
+              possibleChances: receiptChances(
+                amountCents,
+                receipt.thresholdCents
+              ),
+            };
+          }
           const issued = await insertInvite(connection, {
             eventId: aggregate.event.id,
             kind: "receipt",
@@ -2598,6 +3084,35 @@ export function registerEventFlowRoutes(app: Express): void {
               receipt.thresholdCents
             ),
           };
+        },
+        {
+          beforeReplay: async ({ connection, aggregate, access, now }) => {
+            assertFeatureEnabled(aggregate.event, "commerce");
+            const merchantId = text(body.merchantId, "商戶", { max: 36 })!;
+            ensureMerchantScope(access, merchantId);
+            if (
+              !aggregate.merchants.some(
+                item =>
+                  item.id === merchantId &&
+                  item.active &&
+                  item.eventId === aggregate.event.id &&
+                  item.tenantId === aggregate.event.tenantId
+              )
+            )
+              throw new DomainError(
+                409,
+                "MERCHANT_INACTIVE",
+                "商戶不存在或未啟用"
+              );
+            if (body.purchaseCode !== undefined) {
+              const code = text(body.purchaseCode, "消費識別碼", {
+                max: 2048,
+              })!;
+              intendedGuest = (
+                await resolvePurchaseGuest(connection, aggregate, code, now)
+              ).guest;
+            }
+          },
         }
       );
       res.status(201).json(response);
@@ -2636,7 +3151,7 @@ export function registerEventFlowRoutes(app: Express): void {
             ...(frozenInDraw ? { drawException: true } : {}),
           };
           aggregate.receipts[index] = voided;
-          if (current.guestId && !frozenInDraw) {
+          if (current.status === "valid" && current.guestId && !frozenInDraw) {
             const delta = voidLedgerAdjustment(
               aggregate.receipts,
               aggregate.ledger,
@@ -2686,9 +3201,12 @@ export function registerEventFlowRoutes(app: Express): void {
       assertFeatureEnabled(aggregate.event, "commerce");
       // Merchant membership is event-scoped and the server chooses the one
       // authorized merchant; request parameters never select another stall.
-      const merchants = access.role === "merchant"
-        ? aggregate.merchants.filter(merchant => merchant.id === access.merchantId)
-        : aggregate.merchants;
+      const merchants =
+        access.role === "merchant"
+          ? aggregate.merchants.filter(
+              merchant => merchant.id === access.merchantId
+            )
+          : aggregate.merchants;
       const settlements = merchants.map(merchant =>
         merchantSettlement(merchant, aggregate.receipts, aggregate.payments)
       );
@@ -2827,7 +3345,10 @@ export function registerEventFlowRoutes(app: Express): void {
           if (prizeIndex < 0)
             throw new DomainError(404, "PRIZE_NOT_FOUND", "找不到獎項");
           const prize = aggregate.prizes[prizeIndex];
-          if (prize.id === POSITIVE_SPRING_RESERVED_PRIZE_ID || prize.key === POSITIVE_SPRING_RED_PACKET_KEY) {
+          if (
+            prize.id === POSITIVE_SPRING_RESERVED_PRIZE_ID ||
+            prize.key === POSITIVE_SPRING_RED_PACKET_KEY
+          ) {
             throw new DomainError(
               409,
               "SPECIAL_DRAW_USE_DEDICATED_ROUTE",
@@ -2948,15 +3469,27 @@ export function registerEventFlowRoutes(app: Express): void {
         ["owner", "admin", "project_manager", "draw"],
         async ({ aggregate, now }) => {
           if (aggregate.event.id !== POSITIVE_SPRING_EVENT_ID) {
-            throw new DomainError(404, "SPECIAL_DRAW_NOT_FOUND", "找不到此專屬現場抽獎");
+            throw new DomainError(
+              404,
+              "SPECIAL_DRAW_NOT_FOUND",
+              "找不到此專屬現場抽獎"
+            );
           }
           assertFeatureEnabled(aggregate.event, "draw");
           if (now.getTime() < Date.parse(POSITIVE_SPRING_DRAW_AT)) {
-            throw new DomainError(409, "DRAW_NOT_STARTED", "正向春茗現場抽獎須於香港時間2027年1月31日下午5時或之後啟動");
+            throw new DomainError(
+              409,
+              "DRAW_NOT_STARTED",
+              "正向春茗現場抽獎須於香港時間2027年1月31日下午5時或之後啟動"
+            );
           }
           const existingPrize = assertPositiveSpringDrawReady(aggregate);
           if (aggregate.draws.some(draw => !draw.revealedAt)) {
-            throw new DomainError(409, "DRAW_IN_PROGRESS", "請先完成本輪揭曉，再開始下一輪抽獎");
+            throw new DomainError(
+              409,
+              "DRAW_IN_PROGRESS",
+              "請先完成本輪揭曉，再開始下一輪抽獎"
+            );
           }
           const snapshot = buildCheckedInDrawSnapshot(aggregate);
           const picked = selectWeightedWinner(snapshot);
@@ -2964,10 +3497,15 @@ export function registerEventFlowRoutes(app: Express): void {
             guest => guest.id === picked.winnerGuestId
           );
           if (!winner) {
-            throw new DomainError(503, "DRAW_STATE_INVALID", "抽獎快照資料不完整");
+            throw new DomainError(
+              503,
+              "DRAW_STATE_INVALID",
+              "抽獎快照資料不完整"
+            );
           }
           const tableNumber = winner.tableId
-            ? (aggregate.tables.find(table => table.id === winner.tableId)?.number ?? null)
+            ? (aggregate.tables.find(table => table.id === winner.tableId)
+                ?.number ?? null)
             : null;
           const draw: InternalDraw = {
             id: randomUUID(),
@@ -2988,7 +3526,9 @@ export function registerEventFlowRoutes(app: Express): void {
             snapshot,
           };
           aggregate.draws.push(draw);
-          const index = aggregate.prizes.findIndex(prize => prize.id === existingPrize.id);
+          const index = aggregate.prizes.findIndex(
+            prize => prize.id === existingPrize.id
+          );
           aggregate.prizes[index] = { ...existingPrize, drawId: draw.id };
           addAudit(
             aggregate,
@@ -3013,7 +3553,8 @@ export function registerEventFlowRoutes(app: Express): void {
         [slug]
       );
       const row = rows[0];
-      if (!row || row.owner_user_id == null) throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
+      if (!row || row.owner_user_id == null)
+        throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
       res.json(basicEvent(parseAggregate(row.event_state).event));
     })
   );
@@ -3022,15 +3563,24 @@ export function registerEventFlowRoutes(app: Express): void {
     "/public/events/:slug/quick-names",
     route(async (req, res) => {
       assertSameOriginJson(req);
-      assertRateLimit("public-roster-names", clientKey(req), 3000, 10 * 60 * 1000);
+      assertRateLimit(
+        "public-roster-names",
+        clientKey(req),
+        3000,
+        10 * 60 * 1000
+      );
       await readParticipantSession(req);
       const body = bodyObject(req);
       const slug = text(req.params.slug, "活動識別", { max: 160 })!;
       const rows = await readRows<PublicEventRow>(
-        "SELECT id,tenant_id,owner_user_id,event_state FROM ef_events WHERE slug = ? AND owner_user_id IS NOT NULL AND EXISTS (SELECT 1 FROM ef_organizations o WHERE o.id = ef_events.tenant_id AND o.owner_user_id IS NOT NULL) LIMIT 1", [slug]
+        "SELECT id,tenant_id,owner_user_id,event_state FROM ef_events WHERE slug = ? AND owner_user_id IS NOT NULL AND EXISTS (SELECT 1 FROM ef_organizations o WHERE o.id = ef_events.tenant_id AND o.owner_user_id IS NOT NULL) LIMIT 1",
+        [slug]
       );
-      if (!rows.length || rows[0].owner_user_id == null) throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
-      res.json(quickGuestNames(quickAggregate(rows[0]), nameDirectorySort(body)));
+      if (!rows.length || rows[0].owner_user_id == null)
+        throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
+      res.json(
+        quickGuestNames(quickAggregate(rows[0]), nameDirectorySort(body))
+      );
     })
   );
 
@@ -3038,14 +3588,21 @@ export function registerEventFlowRoutes(app: Express): void {
     "/public/events/:slug/quick-search",
     route(async (req, res) => {
       assertSameOriginJson(req);
-      assertRateLimit("public-roster-search", clientKey(req), 6000, 10 * 60 * 1000);
+      assertRateLimit(
+        "public-roster-search",
+        clientKey(req),
+        6000,
+        10 * 60 * 1000
+      );
       await readParticipantSession(req);
       const body = bodyObject(req);
       const slug = text(req.params.slug, "活動識別", { max: 160 })!;
       const rows = await readRows<PublicEventRow>(
-        "SELECT id,tenant_id,owner_user_id,event_state FROM ef_events WHERE slug = ? AND owner_user_id IS NOT NULL AND EXISTS (SELECT 1 FROM ef_organizations o WHERE o.id = ef_events.tenant_id AND o.owner_user_id IS NOT NULL) LIMIT 1", [slug]
+        "SELECT id,tenant_id,owner_user_id,event_state FROM ef_events WHERE slug = ? AND owner_user_id IS NOT NULL AND EXISTS (SELECT 1 FROM ef_organizations o WHERE o.id = ef_events.tenant_id AND o.owner_user_id IS NOT NULL) LIMIT 1",
+        [slug]
       );
-      if (!rows.length || rows[0].owner_user_id == null) throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
+      if (!rows.length || rows[0].owner_user_id == null)
+        throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
       res.json(quickGuestSearch(quickAggregate(rows[0]), body.name));
     })
   );
@@ -3055,17 +3612,29 @@ export function registerEventFlowRoutes(app: Express): void {
     route(async (req, res) => {
       assertSameOriginJson(req);
       // Read-only name lookup. Venue guests often share one Wi-Fi/proxy address.
-      assertRateLimit("public-roster-search", clientKey(req), 6000, 10 * 60 * 1000);
+      assertRateLimit(
+        "public-roster-search",
+        clientKey(req),
+        6000,
+        10 * 60 * 1000
+      );
       await readParticipantSession(req);
       const body = bodyObject(req);
       // No visitor personal data is collected by a name lookup; consent is
       // still required by /register before a phone number is submitted.
       const slug = text(req.params.slug, "活動識別", { max: 160 })!;
       const rows = await readRows<PublicEventRow>(
-        "SELECT id,tenant_id,owner_user_id,event_state FROM ef_events WHERE slug = ? AND owner_user_id IS NOT NULL AND EXISTS (SELECT 1 FROM ef_organizations o WHERE o.id = ef_events.tenant_id AND o.owner_user_id IS NOT NULL) LIMIT 1", [slug]
+        "SELECT id,tenant_id,owner_user_id,event_state FROM ef_events WHERE slug = ? AND owner_user_id IS NOT NULL AND EXISTS (SELECT 1 FROM ef_organizations o WHERE o.id = ef_events.tenant_id AND o.owner_user_id IS NOT NULL) LIMIT 1",
+        [slug]
       );
-      if (!rows.length || rows[0].owner_user_id == null) throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
-      res.json(searchRosterGuests(parseAggregate(rows[0].event_state), rosterSearchInput(body)));
+      if (!rows.length || rows[0].owner_user_id == null)
+        throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
+      res.json(
+        searchRosterGuests(
+          parseAggregate(rows[0].event_state),
+          rosterSearchInput(body)
+        )
+      );
     })
   );
 
@@ -3073,7 +3642,12 @@ export function registerEventFlowRoutes(app: Express): void {
     "/public/events/:slug/roster-names",
     route(async (req, res) => {
       assertSameOriginJson(req);
-      assertRateLimit("public-roster-names", clientKey(req), 3000, 10 * 60 * 1000);
+      assertRateLimit(
+        "public-roster-names",
+        clientKey(req),
+        3000,
+        10 * 60 * 1000
+      );
       await readParticipantSession(req);
       const body = bodyObject(req);
       const slug = text(req.params.slug, "活動識別", { max: 160 })!;
@@ -3081,7 +3655,8 @@ export function registerEventFlowRoutes(app: Express): void {
         "SELECT id,tenant_id,owner_user_id,event_state FROM ef_events WHERE slug = ? AND owner_user_id IS NOT NULL AND EXISTS (SELECT 1 FROM ef_organizations o WHERE o.id = ef_events.tenant_id AND o.owner_user_id IS NOT NULL) LIMIT 1",
         [slug]
       );
-      if (!rows.length || rows[0].owner_user_id == null) throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
+      if (!rows.length || rows[0].owner_user_id == null)
+        throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
       res.json(
         listRosterGuestNames(
           parseAggregate(rows[0].event_state),
@@ -3093,18 +3668,28 @@ export function registerEventFlowRoutes(app: Express): void {
 
   router.post(
     "/public/events/:slug/roster-match",
-    route(async(req,res)=>{
+    route(async (req, res) => {
       assertSameOriginJson(req);
-      assertRateLimit("public-roster-match",clientKey(req),1200,10*60*1000);
+      assertRateLimit(
+        "public-roster-match",
+        clientKey(req),
+        1200,
+        10 * 60 * 1000
+      );
       await readParticipantSession(req);
-      const body=bodyObject(req);
-      if(body.consent!==true)throw new DomainError(400,"CONSENT_REQUIRED","請先同意私隱說明");
-      const slug=text(req.params.slug,"活動識別",{max:160})!;
-      const rows=await readRows<PublicEventRow>("SELECT id,tenant_id,owner_user_id,event_state FROM ef_events WHERE slug = ? AND owner_user_id IS NOT NULL AND EXISTS (SELECT 1 FROM ef_organizations o WHERE o.id = ef_events.tenant_id AND o.owner_user_id IS NOT NULL) LIMIT 1",[slug]);
-      if(!rows.length || rows[0].owner_user_id == null)throw new DomainError(404,"EVENT_NOT_FOUND","找不到活動");
-      const aggregate=parseAggregate(rows[0].event_state);
-      const guest=matchRosterGuest(aggregate,rosterIdentityInput(body));
-      res.json(rosterMatchView(aggregate,guest));
+      const body = bodyObject(req);
+      if (body.consent !== true)
+        throw new DomainError(400, "CONSENT_REQUIRED", "請先同意私隱說明");
+      const slug = text(req.params.slug, "活動識別", { max: 160 })!;
+      const rows = await readRows<PublicEventRow>(
+        "SELECT id,tenant_id,owner_user_id,event_state FROM ef_events WHERE slug = ? AND owner_user_id IS NOT NULL AND EXISTS (SELECT 1 FROM ef_organizations o WHERE o.id = ef_events.tenant_id AND o.owner_user_id IS NOT NULL) LIMIT 1",
+        [slug]
+      );
+      if (!rows.length || rows[0].owner_user_id == null)
+        throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
+      const aggregate = parseAggregate(rows[0].event_state);
+      const guest = matchRosterGuest(aggregate, rosterIdentityInput(body));
+      res.json(rosterMatchView(aggregate, guest));
     })
   );
 
@@ -3136,15 +3721,21 @@ export function registerEventFlowRoutes(app: Express): void {
           [slug]
         );
         const row = eventRows[0];
-        if (!row || row.owner_user_id == null) throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
-        const aggregate = body.quickRegistration === true ? quickAggregate(row) : parseAggregate(row.event_state);
+        if (!row || row.owner_user_id == null)
+          throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
+        const aggregate =
+          body.quickRegistration === true
+            ? quickAggregate(row)
+            : parseAggregate(row.event_state);
         const now = new Date();
         return replayOrStore(
           connection,
           {
             eventId: row.id,
             action: "public.register",
-            actorScope: participant ? `participant:${participant.id}` : `public:${sha256(key)}`,
+            actorScope: participant
+              ? `participant:${participant.id}`
+              : `public:${sha256(key)}`,
             key,
             body,
             now,
@@ -3160,54 +3751,150 @@ export function registerEventFlowRoutes(app: Express): void {
                 "此活動暫未開放登記"
               );
             }
-            const usesRoster=aggregate.event.mode==="attendance"&&aggregate.event.rosterClaimEnabled===true;
+            const usesRoster =
+              aggregate.event.mode === "attendance" &&
+              aggregate.event.rosterClaimEnabled === true;
             const usesQuick = body.quickRegistration === true;
-            if (body.quickRegistration !== undefined && typeof body.quickRegistration !== "boolean")
-              throw new DomainError(400, "VALIDATION_ERROR", "請重新開啟登記頁。");
-            if (!usesRoster && !usesQuick && (body.confirmRoster !== undefined || body.confirmedGuestId !== undefined || body.rosterSelection !== undefined))
-              throw new DomainError(400, "ROSTER_MATCH_FAILED", "未能核對預排名單，請向現場工作人員查詢。");
-            let guest:Guest;
+            if (
+              body.quickRegistration !== undefined &&
+              typeof body.quickRegistration !== "boolean"
+            )
+              throw new DomainError(
+                400,
+                "VALIDATION_ERROR",
+                "請重新開啟登記頁。"
+              );
+            if (
+              !usesRoster &&
+              !usesQuick &&
+              (body.confirmRoster !== undefined ||
+                body.confirmedGuestId !== undefined ||
+                body.rosterSelection !== undefined)
+            )
+              throw new DomainError(
+                400,
+                "ROSTER_MATCH_FAILED",
+                "未能核對預排名單，請向現場工作人員查詢。"
+              );
+            let guest: Guest;
             if (usesQuick) {
-              if (aggregate.event.id !== row.id || aggregate.event.tenantId !== row.tenant_id)
-                throw new DomainError(503, "EVENT_STATE_UNAVAILABLE", "活動資料暫時無法安全讀取");
-              const actorScope = participant ? `participant:${participant.id}` : `public:${sha256(key)}`;
+              if (
+                aggregate.event.id !== row.id ||
+                aggregate.event.tenantId !== row.tenant_id
+              )
+                throw new DomainError(
+                  503,
+                  "EVENT_STATE_UNAVAILABLE",
+                  "活動資料暫時無法安全讀取"
+                );
+              const actorScope = participant
+                ? `participant:${participant.id}`
+                : `public:${sha256(key)}`;
               if (body.walkIn === true) {
-                if (body.confirmRoster !== undefined || body.confirmedGuestId !== undefined || body.rosterSelection !== undefined)
-                  throw new DomainError(400, "QUICK_MATCH_FAILED", "請重新開啟登記頁。");
+                if (
+                  body.confirmRoster !== undefined ||
+                  body.confirmedGuestId !== undefined ||
+                  body.rosterSelection !== undefined
+                )
+                  throw new DomainError(
+                    400,
+                    "QUICK_MATCH_FAILED",
+                    "請重新開啟登記頁。"
+                  );
                 assertQuickNameIsNew(aggregate, body.name);
                 let phone: string;
-                try { phone = registrationPhone(body.phone); }
-                catch { throw new DomainError(400, "INVALID_PHONE", "登記時請填寫本人電話。"); }
-                guest = createGuest(aggregate, validateGuestInput({
-                  name: body.name, phone,
-                  invitedBy: text(body.invitedBy, "邀請人", { optional: true, min: 0, max: 120 }) || "",
-                  note: "嘉賓以簡易入口自行登記；未安排座位，待工作人員核對。",
-                }), now);
+                try {
+                  phone = registrationPhone(body.phone);
+                } catch {
+                  throw new DomainError(
+                    400,
+                    "INVALID_PHONE",
+                    "登記時請填寫本人電話。"
+                  );
+                }
+                guest = createGuest(
+                  aggregate,
+                  validateGuestInput({
+                    name: body.name,
+                    phone,
+                    invitedBy:
+                      text(body.invitedBy, "邀請人", {
+                        optional: true,
+                        min: 0,
+                        max: 120,
+                      }) || "",
+                    note: "嘉賓以簡易入口自行登記；未安排座位，待工作人員核對。",
+                  }),
+                  now
+                );
                 guest.rosterClaimedAt = nowIso(now);
                 guest.rosterClaimedBy = actorScope;
               } else {
-                if (body.confirmRoster !== true || body.rosterSelection !== true || body.walkIn !== undefined)
-                  throw new DomainError(400, "QUICK_CONFIRM_REQUIRED", "請先選擇並確認本人紀錄。");
-                guest = claimQuickGuest(aggregate, { name: body.name, phone: body.phone }, {
-                  confirmedGuestId: text(body.confirmedGuestId, "已確認嘉賓", { max: 80 })!, actorScope, now,
-                });
-                const index = aggregate.guests.findIndex(item => item.id === guest.id);
+                if (
+                  body.confirmRoster !== true ||
+                  body.rosterSelection !== true ||
+                  body.walkIn !== undefined
+                )
+                  throw new DomainError(
+                    400,
+                    "QUICK_CONFIRM_REQUIRED",
+                    "請先選擇並確認本人紀錄。"
+                  );
+                guest = claimQuickGuest(
+                  aggregate,
+                  { name: body.name, phone: body.phone },
+                  {
+                    confirmedGuestId: text(
+                      body.confirmedGuestId,
+                      "已確認嘉賓",
+                      { max: 80 }
+                    )!,
+                    actorScope,
+                    now,
+                  }
+                );
+                const index = aggregate.guests.findIndex(
+                  item => item.id === guest.id
+                );
                 aggregate.guests[index] = guest;
               }
-            } else if(usesRoster && body.walkIn === true){
+            } else if (usesRoster && body.walkIn === true) {
               // Fallback when the guest cannot find themself: create an unseated
               // walk-in record for staff to seat. It never claims a roster row.
-              if (body.confirmRoster !== undefined || body.confirmedGuestId !== undefined || body.rosterSelection !== undefined)
-                throw new DomainError(400, "ROSTER_MATCH_FAILED", "請重新開啟登記頁。");
+              if (
+                body.confirmRoster !== undefined ||
+                body.confirmedGuestId !== undefined ||
+                body.rosterSelection !== undefined
+              )
+                throw new DomainError(
+                  400,
+                  "ROSTER_MATCH_FAILED",
+                  "請重新開啟登記頁。"
+                );
               let phone: string;
-              try { phone = registrationPhone(body.phone); }
-              catch (error) { throw new DomainError(400, "INVALID_PHONE", error instanceof Error ? error.message : "電話不正確"); }
+              try {
+                phone = registrationPhone(body.phone);
+              } catch (error) {
+                throw new DomainError(
+                  400,
+                  "INVALID_PHONE",
+                  error instanceof Error ? error.message : "電話不正確"
+                );
+              }
               const walkInName = text(body.name, "姓名", { max: 120 });
-              if (!walkInName) throw new DomainError(400, "VALIDATION_ERROR", "請輸入姓名");
-              const onList = searchRosterGuests(aggregate, { name: walkInName });
+              if (!walkInName)
+                throw new DomainError(400, "VALIDATION_ERROR", "請輸入姓名");
+              const onList = searchRosterGuests(aggregate, {
+                name: walkInName,
+              });
               if (onList.candidates.length > 0 || onList.requiresRefinement)
-                throw new DomainError(409, "ROSTER_NAME_EXISTS", "名單上已有這個名字，請在上方點選你的名字確認座位。");
-              const inviter = text(body.invitedBy, "邀請人", { max: 120 }) || "";
+                throw new DomainError(
+                  409,
+                  "ROSTER_NAME_EXISTS",
+                  "名單上已有這個名字，請在上方點選你的名字確認座位。"
+                );
+              const inviter =
+                text(body.invitedBy, "邀請人", { max: 120 }) || "";
               const input = validateGuestInput({
                 name: body.name,
                 phone,
@@ -3217,21 +3904,54 @@ export function registerEventFlowRoutes(app: Express): void {
               });
               guest = createGuest(aggregate, input, now);
               guest.rosterClaimedAt = nowIso(now);
-              guest.rosterClaimedBy = participant ? `participant:${participant.id}` : `public:${sha256(key)}`;
-            } else if(usesRoster){
-              if(body.confirmRoster!==true)throw new DomainError(400,"ROSTER_CONFIRM_REQUIRED","請先核對並確認預排座位");
-              if (body.rosterSelection !== undefined && typeof body.rosterSelection !== "boolean")
-                throw new DomainError(400, "ROSTER_MATCH_FAILED", "請重新查找並選擇本人紀錄。");
-              const options = {confirmedGuestId:text(body.confirmedGuestId,"已確認嘉賓",{max:80})!,actorScope:participant?`participant:${participant.id}`:`public:${sha256(key)}`,now};
-              guest = body.rosterSelection === true
-                ? claimRosterSelectedGuest(aggregate, rosterSelectionInput(body), options)
-                : claimRosterGuest(aggregate, rosterIdentityInput(body), options);
+              guest.rosterClaimedBy = participant
+                ? `participant:${participant.id}`
+                : `public:${sha256(key)}`;
+            } else if (usesRoster) {
+              if (body.confirmRoster !== true)
+                throw new DomainError(
+                  400,
+                  "ROSTER_CONFIRM_REQUIRED",
+                  "請先核對並確認預排座位"
+                );
+              if (
+                body.rosterSelection !== undefined &&
+                typeof body.rosterSelection !== "boolean"
+              )
+                throw new DomainError(
+                  400,
+                  "ROSTER_MATCH_FAILED",
+                  "請重新查找並選擇本人紀錄。"
+                );
+              const options = {
+                confirmedGuestId: text(body.confirmedGuestId, "已確認嘉賓", {
+                  max: 80,
+                })!,
+                actorScope: participant
+                  ? `participant:${participant.id}`
+                  : `public:${sha256(key)}`,
+                now,
+              };
+              guest =
+                body.rosterSelection === true
+                  ? claimRosterSelectedGuest(
+                      aggregate,
+                      rosterSelectionInput(body),
+                      options
+                    )
+                  : claimRosterGuest(
+                      aggregate,
+                      rosterIdentityInput(body),
+                      options
+                    );
               // claimRosterGuest returns a NEW object: persist it before check-in and save.
-              const index = aggregate.guests.findIndex(item => item.id === guest.id);
+              const index = aggregate.guests.findIndex(
+                item => item.id === guest.id
+              );
               aggregate.guests[index] = guest;
-            }else{
-              const input=publicGuestInput(body,aggregate.event);
-              guest=createGuest(aggregate,input,now);
+            } else {
+              const input = publicGuestInput(body, aggregate.event);
+              guest = createGuest(aggregate, input, now);
             }
             if (aggregate.event.registrationCheckIn && !guest.checkedInAt) {
               guest.checkedInAt = nowIso(now);
@@ -3249,19 +3969,35 @@ export function registerEventFlowRoutes(app: Express): void {
               guestId: guest.id,
               ...(participant
                 ? { expiresAt: new Date(participant.expiresAt) }
-                : usesRoster || usesQuick ? {expiresAt:new Date(now.getTime()+20*60*60*1000)} : {}),
+                : usesRoster || usesQuick
+                  ? { expiresAt: new Date(now.getTime() + 20 * 60 * 60 * 1000) }
+                  : {}),
               now,
             });
             addAudit(
               aggregate,
-              usesQuick ? "guest.quick_registered" : body.walkIn === true && usesRoster ? "guest.walk_in_registered" : usesRoster ? "guest.roster_self_claimed" : "guest.public_registered",
+              usesQuick
+                ? "guest.quick_registered"
+                : body.walkIn === true && usesRoster
+                  ? "guest.walk_in_registered"
+                  : usesRoster
+                    ? "guest.roster_self_claimed"
+                    : "guest.public_registered",
               "public",
-              usesQuick ? "嘉賓以通用簡易入口自行確認／登記（非OTP或工作人員核實，保留原到場開關）" : body.walkIn === true && usesRoster ? `名單找不到，嘉賓以現場身份自行登記：${guest.name}（待安排座位）` : usesRoster ? body.rosterSelection === true ? "嘉賓以少資料查找並自行選擇本人預排紀錄（非OTP或工作人員核實）" : "嘉賓自行核對分會／班號／邀請人並認領預排座位（非OTP或工作人員核實）" : "嘉賓已自行登記",
+              usesQuick
+                ? "嘉賓以通用簡易入口自行確認／登記（非OTP或工作人員核實，保留原到場開關）"
+                : body.walkIn === true && usesRoster
+                  ? `名單找不到，嘉賓以現場身份自行登記：${guest.name}（待安排座位）`
+                  : usesRoster
+                    ? body.rosterSelection === true
+                      ? "嘉賓以少資料查找並自行選擇本人預排紀錄（非OTP或工作人員核實）"
+                      : "嘉賓自行核對分會／班號／邀請人並認領預排座位（非OTP或工作人員核實）"
+                    : "嘉賓已自行登記",
               now
             );
             await saveAggregate(connection, row.id, aggregate, now);
             return {
-              guest:guestSelfView(guest),
+              guest: guestSelfView(guest),
               invitation: invitation(issued.token, "guest", issued.expiresAt),
             };
           }
@@ -3274,10 +4010,9 @@ export function registerEventFlowRoutes(app: Express): void {
   router.get(
     "/guest",
     route(async (req, res) => {
-      const token = req.get("X-Guest-Token");
-      if (!token || token.length > 512)
-        throw new DomainError(401, "GUEST_UNAUTHORIZED", "請提供有效嘉賓憑證");
-      assertRateLimit("guest-view", token, 60, 60 * 60 * 1000);
+      res.setHeader("Cache-Control", "private, no-store");
+      const token = guestBearer(req);
+      assertRateLimit("guest-view", token, 120, 60 * 1000);
       const invites = await readRows<InviteRow>(
         "SELECT * FROM ef_invites WHERE token_hash = ? LIMIT 1",
         [sha256(token)]
@@ -3293,12 +4028,22 @@ export function registerEventFlowRoutes(app: Express): void {
       assertInviteUsable(invite, new Date());
       const row = await readEvent(invite.event_id);
       const aggregate = parseAggregate(row.event_state);
-      const guest = aggregate.guests.find(item => item.id === invite.guest_id);
-      if (!guest || isExcludedFromEvent(aggregate.event, guest))
-        throw new DomainError(401, "GUEST_UNAUTHORIZED", "請提供有效嘉賓憑證");
-      const receipts = aggregate.receipts.filter(
-        receipt => receipt.guestId === guest.id
-      );
+      assertEventScope(row.id, aggregate.event.id);
+      const guest = boundGuest(aggregate, invite.guest_id!);
+      const receipts = aggregate.receipts
+        .filter(
+          receipt =>
+            receipt.eventId === aggregate.event.id &&
+            (receipt.guestId === guest.id ||
+              (receipt.intendedGuestId === guest.id && !receipt.guestId))
+        )
+        .map(receipt => ({
+          ...receipt,
+          merchantName:
+            receipt.merchantName ??
+            aggregate.merchants.find(item => item.id === receipt.merchantId)
+              ?.name,
+        }));
       const draws = aggregate.draws
         .filter(draw => Boolean(draw.revealedAt))
         .map(drawDto);
@@ -3314,7 +4059,10 @@ export function registerEventFlowRoutes(app: Express): void {
         : null;
       res.json({
         event: basicEvent(aggregate.event),
-        guest: { ...guestSelfView(guest), chances: availableChances(aggregate, guest.id) },
+        guest: {
+          ...guestSelfView(guest),
+          chances: availableChances(aggregate, guest.id),
+        },
         table,
         receipts,
         draws,
@@ -3323,48 +4071,154 @@ export function registerEventFlowRoutes(app: Express): void {
   );
 
   router.post(
+    "/guest/purchase-code",
+    route(async (req, res) => {
+      assertSameOriginJson(req);
+      const body = bodyObject(req);
+      if (Object.keys(body).length !== 0)
+        throw new DomainError(
+          400,
+          "INVALID_BODY",
+          "消費識別碼請求不可包含其他資料"
+        );
+      const key = requireIdempotencyKey(req);
+      assertRateLimit("guest-purchase-code", guestBearer(req), 30, 60 * 1000);
+      const response = await withLockedGuestEvent(
+        req,
+        async ({ connection, row, aggregate, guest, invite, now }) => {
+          assertFeatureEnabled(aggregate.event, "commerce");
+          return replayOrStore(
+            connection,
+            {
+              eventId: row.id,
+              action: "guest.purchase_code",
+              actorScope: `guest:${guest.id}:${invite.token_hash}`,
+              key,
+              body,
+              now,
+            },
+            async () =>
+              issuePurchaseCode(
+                {
+                  eventId: row.id,
+                  guestId: guest.id,
+                  guestInviteHash: invite.token_hash,
+                },
+                now,
+                iso(invite.expires_at)
+              )
+          );
+        }
+      );
+      res.setHeader("Cache-Control", "private, no-store");
+      res.json(response);
+    })
+  );
+
+  router.post(
+    "/guest/receipts/:id/decision",
+    route(async (req, res) => {
+      assertSameOriginJson(req);
+      const body = bodyObject(req);
+      const confirmed = bool(body.confirmed, "消費確認");
+      const key = requireIdempotencyKey(req);
+      assertRateLimit(
+        "guest-receipt-decision",
+        guestBearer(req),
+        120,
+        60 * 1000
+      );
+      const response = await withLockedGuestEvent(
+        req,
+        async ({ connection, row, aggregate, guest, now }) => {
+          assertFeatureEnabled(aggregate.event, "commerce");
+          const receipt = aggregate.receipts.find(
+            item => item.id === req.params.id
+          );
+          if (!receipt)
+            throw new DomainError(404, "RECEIPT_NOT_FOUND", "找不到消費憑證");
+          assertReceiptDecision(aggregate, receipt, guest, confirmed, now);
+          return replayOrStore(
+            connection,
+            {
+              eventId: row.id,
+              action: "guest.receipt_decision",
+              actorScope: `guest:${guest.id}`,
+              key,
+              body: { ...body, receiptId: req.params.id },
+              now,
+            },
+            async () => {
+              const result = decideReceipt(
+                aggregate,
+                receipt,
+                guest,
+                confirmed,
+                now
+              );
+              if (!result.alreadyClaimed) {
+                addAudit(
+                  aggregate,
+                  confirmed ? "receipt.confirmed" : "receipt.rejected",
+                  `guest:${guest.id}`,
+                  confirmed
+                    ? "嘉賓已明確確認消費憑證"
+                    : "嘉賓已拒絕消費憑證（不計營業額或權益）",
+                  now
+                );
+                await saveAggregate(connection, row.id, aggregate, now);
+              }
+              return result;
+            }
+          );
+        }
+      );
+      res.setHeader("Cache-Control", "private, no-store");
+      res.json(response);
+    })
+  );
+
+  router.post(
+    "/guest/claim-preview",
+    route(async (req, res) => {
+      assertSameOriginJson(req);
+      const body = bodyObject(req);
+      assertRateLimit("guest-claim-preview", guestBearer(req), 120, 60 * 1000);
+      const response = await withLockedGuestEvent(req, async context => {
+        assertFeatureEnabled(context.aggregate.event, "commerce");
+        const { receipt } = await legacyReceipt(
+          context,
+          text(body.token, "消費憑證", { max: 512 })!
+        );
+        const merchantName =
+          receipt.merchantName ??
+          context.aggregate.merchants.find(
+            item => item.id === receipt.merchantId
+          )?.name ??
+          "";
+        return { receipt: { ...receipt, merchantName }, merchantName };
+      });
+      res.setHeader("Cache-Control", "private, no-store");
+      res.json(response);
+    })
+  );
+
+  router.post(
     "/guest/claim",
     route(async (req, res) => {
       assertSameOriginJson(req);
       const body = bodyObject(req);
-      const guestToken = req.get("X-Guest-Token");
-      if (!guestToken || guestToken.length > 512)
-        throw new DomainError(401, "GUEST_UNAUTHORIZED", "請提供有效嘉賓憑證");
+      const guestToken = guestBearer(req);
       assertRateLimit("guest-claim", guestToken, 20, 60 * 60 * 1000);
       const receiptToken = text(body.token, "消費憑證", { max: 512 })!;
       const key = requireIdempotencyKey(req);
-      const response = await withTransaction(async connection => {
-        const [guestInvites] = await connection.query<InviteRow[]>(
-          "SELECT * FROM ef_invites WHERE token_hash = ? FOR UPDATE",
-          [sha256(guestToken)]
-        );
-        const guestInvite = guestInvites[0];
-        if (
-          !guestInvite ||
-          guestInvite.kind !== "guest" ||
-          guestInvite.revoked_at ||
-          !guestInvite.guest_id
-        )
-          throw new DomainError(
-            401,
-            "GUEST_UNAUTHORIZED",
-            "請提供有效嘉賓憑證"
-          );
-        assertInviteUsable(guestInvite, new Date());
-        const row = await lockedEventRow(connection, guestInvite.event_id);
-        assertBoundEvent(row);
-        const aggregate = parseAggregate(row.event_state);
+      const response = await withLockedGuestEvent(req, async context => {
+        const { connection, row, aggregate, guest, now } = context;
         assertFeatureEnabled(aggregate.event, "commerce");
-        const guest = aggregate.guests.find(
-          item => item.id === guestInvite.guest_id
+        const { receipt, invite: receiptInvite } = await legacyReceipt(
+          context,
+          receiptToken
         );
-        if (!guest)
-          throw new DomainError(
-            401,
-            "GUEST_UNAUTHORIZED",
-            "請提供有效嘉賓憑證"
-          );
-        const now = new Date();
         return replayOrStore(
           connection,
           {
@@ -3376,49 +4230,6 @@ export function registerEventFlowRoutes(app: Express): void {
             now,
           },
           async () => {
-            const [receiptInvites] = await connection.query<InviteRow[]>(
-              "SELECT * FROM ef_invites WHERE token_hash = ? FOR UPDATE",
-              [sha256(receiptToken)]
-            );
-            const receiptInvite = receiptInvites[0];
-            if (
-              !receiptInvite ||
-              receiptInvite.kind !== "receipt" ||
-              !receiptInvite.guest_id
-            )
-              throw new DomainError(
-                404,
-                "RECEIPT_TOKEN_NOT_FOUND",
-                "找不到有效消費憑證"
-              );
-            assertEventScope(aggregate.event.id, receiptInvite.event_id);
-            const receiptIndex = aggregate.receipts.findIndex(
-              receipt => receipt.id === receiptInvite.guest_id
-            );
-            if (receiptIndex < 0)
-              throw new DomainError(
-                503,
-                "RECEIPT_STATE_INVALID",
-                "消費憑證資料不完整"
-              );
-            const receipt = aggregate.receipts[receiptIndex];
-            if (receipt.status === "void")
-              throw new DomainError(409, "RECEIPT_VOID", "此消費憑證已作廢");
-            if (
-              receiptInvite.claimed_by_guest_id &&
-              receiptInvite.claimed_by_guest_id !== guest.id
-            )
-              throw new DomainError(
-                409,
-                "RECEIPT_CLAIMED_BY_OTHER",
-                "此消費憑證已由其他嘉賓領取"
-              );
-            if (receipt.guestId && receipt.guestId !== guest.id)
-              throw new DomainError(
-                409,
-                "RECEIPT_CLAIMED_BY_OTHER",
-                "此消費憑證已由其他嘉賓領取"
-              );
             if (receipt.guestId === guest.id) {
               return {
                 receipt,
@@ -3427,47 +4238,7 @@ export function registerEventFlowRoutes(app: Express): void {
                 alreadyClaimed: true,
               };
             }
-            const expiry = iso(receiptInvite.expires_at);
-            if (expiry && new Date(expiry).getTime() <= now.getTime())
-              throw new DomainError(410, "RECEIPT_EXPIRED", "消費憑證已過期");
-            let gained: number;
-            if (receipt.accumulation === "per_transaction") {
-              gained = receiptChances(
-                receipt.amountCents,
-                receipt.thresholdCents
-              );
-            } else {
-              const prior = aggregate.receipts
-                .filter(
-                  item =>
-                    item.id !== receipt.id &&
-                    item.guestId === guest.id &&
-                    item.status === "valid" &&
-                    item.ruleVersion === receipt.ruleVersion
-                )
-                .reduce((sum, item) => sum + item.amountCents, 0);
-              gained = cumulativeClaimDelta(
-                prior,
-                receipt.amountCents,
-                receipt.thresholdCents
-              );
-            }
-            const claimed: Receipt = {
-              ...receipt,
-              guestId: guest.id,
-              claimedAt: nowIso(now),
-              chances: gained,
-            };
-            aggregate.receipts[receiptIndex] = claimed;
-            recordLedger(aggregate, {
-              guestId: guest.id,
-              receiptId: receipt.id,
-              ruleVersion: receipt.ruleVersion,
-              delta: gained,
-              kind: "claim",
-              now,
-            });
-            const updatedGuest = updateGuestChances(aggregate, guest.id);
+            const result = applyReceiptClaim(aggregate, receipt, guest, now);
             await connection.execute(
               "UPDATE ef_invites SET claimed_by_guest_id = ?, consumed_at = ? WHERE id = ?",
               [guest.id, sqlDate(now), receiptInvite.id]
@@ -3480,15 +4251,11 @@ export function registerEventFlowRoutes(app: Express): void {
               now
             );
             await saveAggregate(connection, row.id, aggregate, now);
-            return {
-              receipt: claimed,
-              gained,
-              total: availableChances(aggregate, updatedGuest.id),
-              alreadyClaimed: false,
-            };
+            return result;
           }
         );
       });
+      res.setHeader("Cache-Control", "private, no-store");
       res.json(response);
     })
   );

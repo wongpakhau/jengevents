@@ -14,7 +14,8 @@ import { apiGuest, idempotencyKey, money } from "@/lib/eventflow-api";
 import { formatEventDate, formatEventVenue } from "@/lib/event-date";
 import QRScanner from "@/components/event/QRScanner";
 import { useParticipantAccessPending } from "@/components/event/ParticipantSessionGuard";
-import type { ClaimResult, GuestView } from "@shared/eventflow";
+import ConsumerTickets from "@/components/event/ConsumerTickets";
+import type { ClaimResult, GuestView, Receipt } from "@shared/eventflow";
 import { classLabel } from "@shared/registration";
 import { ELITE_GUEST_EVENT_SLUG } from "@shared/young-friends";
 import EliteGuestQuickActions from "@/components/event/EliteGuestQuickActions";
@@ -83,6 +84,8 @@ function requestError(error: unknown, fallback: string) {
 
 function receiptState(receipt: GuestView["receipts"][number]) {
   if (receipt.status === "void") return "已作廢";
+  if (receipt.status === "pending") return "待本人確認";
+  if (receipt.status === "rejected") return "已拒絕";
   if (receipt.claimedAt) return "已領取";
   return "尚未領取";
 }
@@ -111,7 +114,17 @@ export default function GuestPortal() {
   const [error, setError] = useState<string | null>(null);
   const claimKeyRef = useRef(idempotencyKey());
   const claimTokenRef = useRef<string | null>(pendingClaim);
-  const autoClaimAttempt = useRef("");
+  const [claimPreview, setClaimPreview] = useState<{
+    receipt: Receipt;
+    merchantName: string;
+  } | null>(null);
+  const [previewError, setPreviewError] = useState("");
+  const [previewAttempt, setPreviewAttempt] = useState(0);
+  const inviteScope = useRef(inviteToken);
+  inviteScope.current = inviteToken;
+  const pendingClaimScope = useRef(pendingClaim);
+  pendingClaimScope.current = pendingClaim;
+  const claimBusyRef = useRef(false);
 
   const loadGuest = useCallback(async () => {
     if (!inviteToken) {
@@ -123,14 +136,16 @@ export default function GuestPortal() {
     setError(null);
     try {
       const response = await apiGuest<GuestView>("/guest", inviteToken);
+      if (inviteScope.current !== inviteToken) return;
       setGuestView(response);
     } catch (loadError) {
+      if (inviteScope.current !== inviteToken) return;
       setGuestView(null);
       setError(
         requestError(loadError, "未能讀取嘉賓資料。請確認邀請連結仍然有效。")
       );
     } finally {
-      setLoading(false);
+      if (inviteScope.current === inviteToken) setLoading(false);
     }
   }, [inviteToken]);
 
@@ -143,7 +158,10 @@ export default function GuestPortal() {
       const hashInvite = hashValue("invite");
       const hashClaim = hashValue("claim");
       if (hashInvite) setInviteToken(hashInvite);
-      if (hashClaim) setPendingClaim(hashClaim);
+      if (hashClaim) {
+        pendingClaimScope.current = hashClaim;
+        setPendingClaim(hashClaim);
+      }
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
@@ -161,7 +179,16 @@ export default function GuestPortal() {
   }, [pendingClaim]);
 
   const claimReceipt = useCallback(async () => {
-    if (!inviteToken || !pendingClaim || claiming || accessPending) return;
+    if (
+      !inviteToken ||
+      !pendingClaim ||
+      !claimPreview ||
+      claimBusyRef.current ||
+      accessPending
+    )
+      return;
+    const submittedClaim = pendingClaim;
+    claimBusyRef.current = true;
     setClaiming(true);
     setError(null);
     setMessage(null);
@@ -173,50 +200,76 @@ export default function GuestPortal() {
         { token: pendingClaim },
         claimKeyRef.current
       );
+      if (inviteScope.current !== inviteToken) return;
       setMessage(
         result.alreadyClaimed
           ? `此憑證已領取；你目前共有 ${result.total} 次抽獎機會。`
           : `成功增加 ${result.gained} 次抽獎機會；你目前共有 ${result.total} 次。`
       );
-      setPendingClaim(null);
-      replaceGuestHash(inviteToken, null);
+      if (pendingClaimScope.current === submittedClaim) {
+        pendingClaimScope.current = null;
+        setPendingClaim(null);
+        replaceGuestHash(inviteToken, null);
+      }
       await loadGuest();
     } catch (claimError) {
       // Keep the same pending token and key: a retry cannot duplicate a claim.
-      setError(
-        requestError(claimError, "未能領取消費憑證。請以相同 QR 再試一次。")
-      );
+      if (
+        inviteScope.current === inviteToken &&
+        pendingClaimScope.current === submittedClaim
+      ) {
+        setError(
+          requestError(claimError, "未能領取消費憑證。請以相同 QR 再試一次。")
+        );
+      }
     } finally {
+      claimBusyRef.current = false;
       setClaiming(false);
     }
-  }, [claiming, inviteToken, loadGuest, pendingClaim, accessPending]);
+  }, [
+    claiming,
+    inviteToken,
+    loadGuest,
+    pendingClaim,
+    claimPreview,
+    accessPending,
+  ]);
 
   useEffect(() => {
-    if (
-      !inviteToken ||
-      !pendingClaim ||
-      !guestView ||
-      loading ||
-      claiming ||
-      accessPending
-    )
+    let active = true;
+    setClaimPreview(null);
+    setPreviewError("");
+    if (!inviteToken || !pendingClaim || !guestView?.guest.id || accessPending)
       return;
-    const attempt = `${inviteToken}:${pendingClaim}`;
-    if (autoClaimAttempt.current === attempt) return;
-    autoClaimAttempt.current = attempt;
-    void claimReceipt();
+    void apiGuest<{ receipt: Receipt; merchantName: string }>(
+      "/guest/claim-preview",
+      inviteToken,
+      "POST",
+      { token: pendingClaim }
+    ).then(
+      result => {
+        if (active) setClaimPreview(result);
+      },
+      reason => {
+        if (active)
+          setPreviewError(requestError(reason, "未能預覽憑證，請重試。"));
+      }
+    );
+    return () => {
+      active = false;
+    };
   }, [
     inviteToken,
     pendingClaim,
-    guestView,
-    loading,
-    claiming,
-    claimReceipt,
+    guestView?.guest.id,
     accessPending,
+    previewAttempt,
   ]);
 
   const handleScan = async (raw: string) => {
     if (accessPending) throw new Error("正在確認登入狀態，請稍後再掃描。");
+    if (claimBusyRef.current)
+      throw new Error("正在確認消費憑證，請完成後再掃描下一筆。");
     let scannedInvite = valueFromScannedLink(raw, "invite");
     let scannedClaim = valueFromScannedLink(raw, "claim");
 
@@ -243,8 +296,8 @@ export default function GuestPortal() {
       setError(null);
       setMessage(
         inviteToken
-          ? "已讀取消費憑證，可立即領取。"
-          : "已暫存消費憑證。請先掃描你的嘉賓邀請 QR，身份確認後即可領取。"
+          ? "已讀取消費憑證，請核對商家及金額後確認。"
+          : "已暫存消費憑證。請先掃描你的嘉賓邀請 QR，身份確認後再核對領取。"
       );
       replaceGuestHash(inviteToken, scannedClaim);
       setShowScanner(false);
@@ -269,7 +322,8 @@ export default function GuestPortal() {
 
   const event = guestView?.event;
   const guest = guestView?.guest;
-  const eliteQuickActions = event?.slug === ELITE_GUEST_EVENT_SLUG && event.mode === "attendance";
+  const eliteQuickActions =
+    event?.slug === ELITE_GUEST_EVENT_SLUG && event.mode === "attendance";
 
   return (
     <main
@@ -357,7 +411,7 @@ export default function GuestPortal() {
           <button
             type="button"
             onClick={() =>
-              pendingClaim && inviteToken
+              pendingClaim && inviteToken && claimPreview
                 ? void claimReceipt()
                 : void loadGuest()
             }
@@ -380,21 +434,41 @@ export default function GuestPortal() {
         <section className="event-mobile-card pending-claim">
           <Gift size={22} />
           <div>
-            <h2>可領取消費憑證</h2>
-            <p>身份已確認後，才會由伺服器把權益加入你的帳戶。</p>
+            <h2>核對消費憑證</h2>
+            {claimPreview ? (
+              <>
+                <p>
+                  {claimPreview.merchantName} ·{" "}
+                  {money(claimPreview.receipt.amountCents)}
+                </p>
+                <p>交易參考：{claimPreview.receipt.reference}</p>
+                <p>確認實際交易金額後，才會加入抽獎權益。</p>
+              </>
+            ) : (
+              <p>{previewError || "正在核對憑證資料…"}</p>
+            )}
+            {previewError && (
+              <button
+                type="button"
+                className="event-mobile-text-button"
+                onClick={() => setPreviewAttempt(value => value + 1)}
+              >
+                重試預覽
+              </button>
+            )}
           </div>
           <button
             type="button"
             className="event-mobile-primary"
             onClick={() => void claimReceipt()}
-            disabled={claiming}
+            disabled={claiming || !claimPreview || accessPending}
           >
             {claiming ? (
               <LoaderCircle className="event-mobile-spin" size={18} />
             ) : (
               <Gift size={18} />
             )}
-            {claiming ? "正在領取…" : "立即領取"}
+            {claiming ? "正在領取…" : "確認金額並領取"}
           </button>
         </section>
       )}
@@ -424,34 +498,52 @@ export default function GuestPortal() {
           </section>
 
           {eliteQuickActions && (
-            <EliteGuestQuickActions key={guest.id} table={guestView?.table ?? null} />
+            <EliteGuestQuickActions
+              key={guest.id}
+              table={guestView?.table ?? null}
+            />
           )}
-          {!eliteQuickActions && <section className="guest-stat-grid">
-            {event.mode !== "attendance" && (
+          {!eliteQuickActions && (
+            <section className="guest-stat-grid">
+              {event.mode !== "attendance" && (
+                <article className="event-mobile-card guest-stat">
+                  <span>累積抽獎機會</span>
+                  <strong>
+                    {guest.chances}
+                    <small> 次</small>
+                  </strong>
+                  <Ticket size={22} />
+                </article>
+              )}
               <article className="event-mobile-card guest-stat">
-                <span>累積抽獎機會</span>
+                <span>你的座位</span>
                 <strong>
-                  {guest.chances}
-                  <small> 次</small>
+                  {guestView?.table
+                    ? `${guestView.table.number} 號枱`
+                    : "待安排"}
                 </strong>
-                <Ticket size={22} />
+                <small>
+                  {guestView?.table
+                    ? `${guestView.table.label} · 座位 ${guestView.table.seat ?? "待安排"}`
+                    : "詳情請向大會查詢"}
+                </small>
               </article>
-            )}
-            <article className="event-mobile-card guest-stat">
-              <span>你的座位</span>
-              <strong>
-                {guestView?.table ? `${guestView.table.number} 號枱` : "待安排"}
-              </strong>
-              <small>
-                {guestView?.table
-                  ? `${guestView.table.label} · 座位 ${guestView.table.seat ?? "待安排"}`
-                  : "詳情請向大會查詢"}
-              </small>
-            </article>
-          </section>}
+            </section>
+          )}
 
           {event.mode !== "attendance" && (
             <>
+              {inviteToken && guestView && (
+                <ConsumerTickets
+                  key={inviteToken}
+                  inviteToken={inviteToken}
+                  view={guestView}
+                  accessPending={accessPending}
+                  onUpdate={next => {
+                    if (inviteScope.current === inviteToken) setGuestView(next);
+                  }}
+                />
+              )}
               <section className="event-mobile-card guest-list">
                 <div className="event-mobile-card__heading">
                   <div>
@@ -466,6 +558,10 @@ export default function GuestPortal() {
                       <div>
                         <strong>{money(receipt.amountCents)}</strong>
                         <span>
+                          {receipt.merchantName || "授權商戶"} ·{" "}
+                          {receipt.reference}
+                        </span>
+                        <span>
                           {new Date(receipt.createdAt).toLocaleString("zh-HK")}
                         </span>
                       </div>
@@ -478,7 +574,8 @@ export default function GuestPortal() {
                   ))
                 ) : (
                   <p className="event-mobile-empty">
-                    尚未有消費憑證。於商戶消費後掃描其 QR 即可領取。
+                    尚未有消費憑證。出示「消費領抽獎券」QR
+                    給商家掃描，再由你確認金額。
                   </p>
                 )}
               </section>
@@ -528,6 +625,7 @@ export default function GuestPortal() {
         </button>
         {showScanner && (
           <QRScanner
+            disabled={claiming || accessPending}
             onDetect={handleScan}
             title="掃描活動 QR code"
             description={

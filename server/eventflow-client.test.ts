@@ -49,6 +49,36 @@ describe("eventflow API transport", () => {
     expect(init.headers.Authorization).toBeUndefined();
     expect(JSON.parse(init.body)).toEqual({ token: "receipt-capability" });
   });
+  it("sends an explicit customer decision without any staff identity", async () => {
+    vi.stubGlobal("sessionStorage", {
+      getItem: () => `${COOKIE_NAME}=staff-session`,
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ total: 1 })));
+    vi.stubGlobal("fetch", fetch);
+    await apiGuest(
+      "/guest/receipts/receipt-id/decision",
+      "own-guest",
+      "POST",
+      { confirmed: true },
+      "decision-once"
+    );
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe("/api/eventflow/guest/receipts/receipt-id/decision");
+    expect(init.headers.Authorization).toBeUndefined();
+    expect(init.headers["X-Guest-Token"]).toBe("own-guest");
+    expect(init.headers["Idempotency-Key"]).toBe("decision-once");
+    expect(JSON.parse(init.body)).toEqual({ confirmed: true });
+  });
+  it("refreshes the customer's own spending without browser cache", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ receipts: [] })));
+    vi.stubGlobal("fetch", fetch);
+    await apiGuest("/guest", "own-guest");
+    expect(fetch.mock.calls[0][1].cache).toBe("no-store");
+  });
   it("keeps real unauthenticated state and exposes server conflict errors", async () => {
     vi.stubGlobal("sessionStorage", { getItem: () => null });
     vi.stubGlobal(

@@ -16,7 +16,9 @@ import CheckInDesk from "@/pages/CheckInDesk";
 import AccessManagement from "@/pages/AccessManagement";
 import ParticipantPortal from "@/pages/ParticipantPortal";
 import ParticipantSessionGuard from "@/components/event/ParticipantSessionGuard";
+import RoleDemo from "@/pages/RoleDemo";
 import "@/styles/event-integration.css";
+import "@/styles/consumption.css";
 function StaffRoutes() {
   return (
     <EventWorkspaceProvider>
@@ -69,6 +71,15 @@ export default function App() {
         <TooltipProvider>
           <Toaster />
           <Switch>
+            <Route path="/demo/admin">
+              <RoleDemo role="admin" />
+            </Route>
+            <Route path="/demo/merchant">
+              <RoleDemo role="merchant" />
+            </Route>
+            <Route path="/demo/guest">
+              <RoleDemo role="guest" />
+            </Route>
             <Route path="/participant" component={ParticipantPortal} />
             <Route path="/guest">
               <ParticipantSessionGuard>

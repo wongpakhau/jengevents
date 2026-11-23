@@ -10,9 +10,11 @@ export type EventMode = "full" | "attendance";
 
 /** Fixed identity and Hong Kong instant for the one-off on-site red-packet draw. */
 export const POSITIVE_SPRING_EVENT_ID = "a6627e4a-0492-4c0a-b6a3-8bb11cb197fb";
-export const POSITIVE_SPRING_RED_PACKET_KEY = "positive-spring-2027-red-packet-hkd1000-v1";
+export const POSITIVE_SPRING_RED_PACKET_KEY =
+  "positive-spring-2027-red-packet-hkd1000-v1";
 /** Fixed server-owned prize identity; ordinary prize creation must never claim it. */
-export const POSITIVE_SPRING_RESERVED_PRIZE_ID = "6f5b7d2e-1c44-4e9a-9f3b-2c7d8a1e5b60";
+export const POSITIVE_SPRING_RESERVED_PRIZE_ID =
+  "6f5b7d2e-1c44-4e9a-9f3b-2c7d8a1e5b60";
 export const POSITIVE_SPRING_DRAW_AT = "2027-01-31T09:00:00.000Z";
 
 export type Brand = {
@@ -132,7 +134,11 @@ export type Receipt = {
   merchantId: string;
   amountCents: number;
   feeCents: number;
-  status: "valid" | "void";
+  status: "valid" | "void" | "pending" | "rejected";
+  intendedGuestId?: string;
+  confirmationRequired?: boolean;
+  merchantName?: string;
+  decisionAt?: string;
   guestId: string | null;
   claimedAt: string | null;
   createdAt: string;
@@ -236,10 +242,21 @@ export type GuestView = {
 
 export type ReceiptIssued = {
   receipt: Receipt;
-  token: string;
-  path: string;
+  token?: string;
+  path?: string;
   possibleChances: number;
 };
+
+export type PurchaseCodeIssued = {
+  code: string;
+  path: string;
+  expiresAt: string;
+};
+export type PurchaseCodeResolved = {
+  guest: Pick<Guest, "id" | "name" | "ticket">;
+  expiresAt: string;
+};
+export type ClaimPreview = { receipt: Receipt; merchantName: string };
 
 export type Invitation = { token: string; path: string; expiresAt?: string };
 

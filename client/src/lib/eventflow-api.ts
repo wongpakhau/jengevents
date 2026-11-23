@@ -81,6 +81,7 @@ export async function apiGuest<T>(
     await fetch(`/api/eventflow${path}`, {
       method,
       credentials: "include",
+      ...(method === "GET" ? { cache: "no-store" as const } : {}),
       headers: {
         "X-Guest-Token": guestToken,
         ...(method !== "GET" ? { "Content-Type": "application/json" } : {}),
