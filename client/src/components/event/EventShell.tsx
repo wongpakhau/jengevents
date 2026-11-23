@@ -80,6 +80,8 @@ export default function EventShell({ children }: { children: ReactNode }) {
       : activeNavigation.filter(
           item =>
             (state.role === "checkin" && item.path === "/checkin") ||
+            (state.role === "merchant" && item.path === "/settlements") ||
+            (state.role === "draw" && item.path === "/draw") ||
             (state.role === "guest_manager" &&
               ["/", "/guests", "/seating", "/checkin"].includes(item.path))
         );

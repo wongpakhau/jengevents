@@ -16,6 +16,7 @@ type WorkspaceContext = {
   setEventId: (id: string) => void;
   reload: () => Promise<void>;
   refreshSession: () => Promise<void>;
+  lastUpdatedAt: number | null;
   loading: boolean;
   error: string | null;
 };
@@ -24,7 +25,8 @@ export function EventWorkspaceProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null),
     [state, setState] = useState<WorkspaceState | null>(null),
     [loading, setLoading] = useState(true),
-    [error, setError] = useState<string | null>(null);
+    [error, setError] = useState<string | null>(null),
+    [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [eventId, setSelected] = useState(() => {
     try {
       return (
@@ -37,12 +39,16 @@ export function EventWorkspaceProvider({ children }: { children: ReactNode }) {
     }
   });
   const sequence = useRef(0),
+    sessionSequence = useRef(0),
     activeEvent = useRef(eventId),
-    sessionRef = useRef<Session | null>(null);
+    sessionRef = useRef<Session | null>(null),
+    stateRef = useRef<WorkspaceState | null>(null);
   const setEventId = useCallback((id: string) => {
     sequence.current++;
     activeEvent.current = id;
+    stateRef.current = null;
     setState(null);
+    setLastUpdatedAt(null);
     setError(null);
     setSelected(id);
     try {
@@ -50,28 +56,42 @@ export function EventWorkspaceProvider({ children }: { children: ReactNode }) {
     } catch {}
   }, []);
   const refreshSession = useCallback(async () => {
+    const version = ++sessionSequence.current;
+    sequence.current++;
+    // A session refresh can change role or merchant assignment. Invalidate all
+    // event-scoped data before the request starts, not after it succeeds.
+    sessionRef.current = null;
+    stateRef.current = null;
+    setState(null);
+    setLastUpdatedAt(null);
+    setError(null);
     setLoading(true);
     try {
       const next = await api<Session>("/session");
+      if (version !== sessionSequence.current) return;
       sessionRef.current = next;
       setSession(next);
       setError(null);
       if (!next.events.some(e => e.id === activeEvent.current)) {
+        setLoading(false);
         setEventId(next.events[0]?.id || "");
       }
     } catch (e) {
+      if (version !== sessionSequence.current) return;
       setSession(null);
       sessionRef.current = null;
+      stateRef.current = null;
       setState(null);
+      setLastUpdatedAt(null);
       setError(
         e instanceof ApiError && e.status === 401
           ? null
           : e instanceof Error
             ? e.message
-            : "讀取登入狀態失敗"
+          : "讀取登入狀態失敗"
       );
     } finally {
-      setLoading(false);
+      if (version === sessionSequence.current) setLoading(false);
     }
   }, [setEventId]);
   const reload = useCallback(async () => {
@@ -83,13 +103,31 @@ export function EventWorkspaceProvider({ children }: { children: ReactNode }) {
         `/events/${encodeURIComponent(id)}/state`
       );
       if (version === sequence.current && id === activeEvent.current) {
+        stateRef.current = next;
         setState(next);
         setError(null);
+        setLastUpdatedAt(Date.now());
       }
     } catch (e) {
       if (version === sequence.current) {
-        setState(null);
-        setError(e instanceof Error ? e.message : "活動讀取失敗");
+        if (e instanceof ApiError && [401, 403, 404].includes(e.status)) {
+          stateRef.current = null;
+          setState(null);
+          setLastUpdatedAt(null);
+          if (e.status === 401) {
+            sessionRef.current = null;
+            setSession(null);
+          }
+          setError(e.message);
+          return;
+        }
+        setError(
+          stateRef.current
+            ? `資料更新失敗，顯示可能陳舊的資料：${e instanceof Error ? e.message : "活動讀取失敗"}`
+            : e instanceof Error
+              ? e.message
+              : "活動讀取失敗"
+        );
       }
     }
   }, []);
@@ -109,7 +147,7 @@ export function EventWorkspaceProvider({ children }: { children: ReactNode }) {
         disposed ||
         busy ||
         document.hidden ||
-        !["/", "/guests", "/checkin"].includes(location.pathname)
+        !["/", "/guests", "/checkin", "/merchants", "/settlements", "/merchant"].includes(location.pathname)
       )
         return;
       busy = true;
@@ -140,6 +178,7 @@ export function EventWorkspaceProvider({ children }: { children: ReactNode }) {
         setEventId,
         reload,
         refreshSession,
+        lastUpdatedAt,
         loading,
         error,
       }}

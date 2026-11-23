@@ -52,6 +52,7 @@ type RegistrationAttempt = {
   result?: RegistrationResult;
 };
 type Phase = "idle" | "searching" | "confirming" | "walkin";
+type NameDirectorySort = "name" | "phone";
 
 const MAX_SUGGESTIONS = 8;
 
@@ -120,6 +121,7 @@ export default function QuickRosterCheckIn({ event, slug }: Props) {
   ]);
   const [query, setQuery] = useState("");
   const [names, setNames] = useState<string[] | null>(null);
+  const [nameSort, setNameSort] = useState<NameDirectorySort>("name");
   const [namesFailed, setNamesFailed] = useState(false);
   const [lookup, setLookup] = useState<Lookup | null>(null);
   const [selected, setSelected] = useState<RosterMatchView | null>(null);
@@ -190,7 +192,7 @@ export default function QuickRosterCheckIn({ event, slug }: Props) {
     api<unknown>(
       `/public/events/${encodeURIComponent(slug)}/quick-names`,
       "POST",
-      {}
+      { sort: nameSort }
     )
       .then(result => {
         if (!cancelled && mounted.current)
@@ -205,7 +207,7 @@ export default function QuickRosterCheckIn({ event, slug }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [context, accessPending]);
+  }, [context, accessPending, nameSort]);
 
   function current(version: number, scope: string) {
     return (
@@ -596,9 +598,7 @@ export default function QuickRosterCheckIn({ event, slug }: Props) {
   const id = (suffix: string) => `${inputId}-${suffix}`;
   const allNames = useMemo(
     () =>
-      (names ?? [])
-        .slice()
-        .sort((a, b) => a.localeCompare(b, "zh-Hant", { sensitivity: "base" })),
+      (names ?? []).slice(),
     [names]
   );
   const notFound =
@@ -965,7 +965,27 @@ export default function QuickRosterCheckIn({ event, slug }: Props) {
             </li>
             <li>
               <strong>看全部名單</strong>
-              <p>由 A 至 Z 列出所有嘉賓名字（只顯示名字），點選即可查座位。</p>
+              <p>
+                可按姓名或活動嘉賓電話排序；只顯示名字，電話不會公開。點選即可查座位。
+              </p>
+              <div className="quick-roster__help-secondary" role="group" aria-label="名單排序">
+                <button
+                  type="button"
+                  className={nameSort === "name" ? "event-mobile-primary" : "quick-roster__help-secondary"}
+                  onClick={() => setNameSort("name")}
+                  disabled={disabled || nameSort === "name"}
+                >
+                  姓名排序
+                </button>
+                <button
+                  type="button"
+                  className={nameSort === "phone" ? "event-mobile-primary" : "quick-roster__help-secondary"}
+                  onClick={() => setNameSort("phone")}
+                  disabled={disabled || nameSort === "phone"}
+                >
+                  電話排序（電話不公開）
+                </button>
+              </div>
               <button
                 type="button"
                 className="quick-roster__help-secondary"

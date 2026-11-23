@@ -15,6 +15,7 @@ import QRScanner from "@/components/event/QRScanner";
 import type { Guest } from "@shared/eventflow";
 import { eventGuests } from "@shared/eventflow";
 import { classLabel } from "@shared/registration";
+import { sortGuests, type GuestSortField } from "@/lib/guest-sort";
 import "@/styles/event-mobile.css";
 
 type CheckInResult = { guest: Guest; alreadyCheckedIn: boolean };
@@ -61,6 +62,7 @@ export default function CheckInDesk() {
   const [mode, setMode] = useState<"token" | "guest">("token");
   const [value, setValue] = useState("");
   const [guestQuery, setGuestQuery] = useState("");
+  const [guestSortBy, setGuestSortBy] = useState<GuestSortField>("name");
   const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
   const [manualConfirmed, setManualConfirmed] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
@@ -76,10 +78,10 @@ export default function CheckInDesk() {
       state.role
     );
   const guestMatches = state
-    ? eventGuests(state.event, state.guests)
-        .filter(guest => {
+    ? sortGuests(
+        eventGuests(state.event, state.guests).filter(guest => {
           const query = guestQuery.trim().toLocaleLowerCase();
-          if (!query) return false;
+          if (!query) return true;
           return [
             guest.name,
             guest.group,
@@ -89,8 +91,9 @@ export default function CheckInDesk() {
             guest.invitedBy || "",
             classLabel(guest),
           ].some(field => field.toLocaleLowerCase().includes(query));
-        })
-        .slice(0, 8)
+        }),
+        guestSortBy
+      ).slice(0, 8)
     : [];
 
   const executeCheckIn = async (payload: CheckInPayload) => {
@@ -363,6 +366,20 @@ export default function CheckInDesk() {
               }
               disabled={submitting}
             />
+            {mode === "guest" && (
+              <label className="event-mobile-label" htmlFor="checkin-sort">
+                排序
+                <select
+                  id="checkin-sort"
+                  value={guestSortBy}
+                  onChange={event => setGuestSortBy(event.target.value as GuestSortField)}
+                  disabled={submitting}
+                >
+                  <option value="name">姓名</option>
+                  <option value="phone">電話</option>
+                </select>
+              </label>
+            )}
             {mode === "guest" && selectedGuest && (
               <p className="event-mobile-selected-guest">
                 已選擇：<strong>{selectedGuest.name}</strong>

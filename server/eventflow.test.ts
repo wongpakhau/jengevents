@@ -4,6 +4,7 @@ import {
   DomainError,
   assertEventScope,
   assertSeatChange,
+  buildCheckedInDrawSnapshot,
   buildDrawSnapshot,
   cumulativeClaimDelta,
   idempotencyDecision,
@@ -26,6 +27,8 @@ const guest = (id: string, overrides: Partial<Guest> = {}): Guest => ({
   tableId: null,
   seat: null,
   chances: 0,
+  group: "",
+  note: "",
   createdAt: "2026-01-01T00:00:00.000Z",
   ...overrides,
 });
@@ -172,7 +175,7 @@ describe("EventFlow pure business engine", () => {
         receipt({ id: "r2", guestId: "g2" }),
       ],
       draws: [],
-    });
+    }, false);
     expect(selectWeightedWinner(snapshot, () => 2).winnerGuestId).toBe("g2");
     const draw = {
       id: "d1",
@@ -191,5 +194,22 @@ describe("EventFlow pure business engine", () => {
       if (draw.prizeId === "p1")
         throw new DomainError(409, "PRIZE_ALREADY_DRAWN", "此獎項已完成抽獎");
     }, "PRIZE_ALREADY_DRAWN");
+  });
+
+  it("gives every checked-in guest one equal chance, independent of receipts or prior winners", () => {
+    const snapshot = buildCheckedInDrawSnapshot({
+      guests: [
+        guest("g1", { checkedInAt: "2027-01-31T08:00:00.000Z", chances: 99 }),
+        guest("g2", { checkedInAt: "2027-01-31T08:01:00.000Z", chances: 0 }),
+        guest("g3", { checkedInAt: null, chances: 99 }),
+        guest("g4", { checkedInAt: "", chances: 99 }),
+        guest("g5", { checkedInAt: undefined, chances: 99 }),
+        guest("g6", { checkedInAt: "invalid", chances: 99 }),
+      ],
+    });
+    expect(snapshot).toEqual([
+      { guestId: "g1", ticket: "000001", chances: 1, ledgerIds: [], receiptIds: [] },
+      { guestId: "g2", ticket: "000002", chances: 1, ledgerIds: [], receiptIds: [] },
+    ]);
   });
 });

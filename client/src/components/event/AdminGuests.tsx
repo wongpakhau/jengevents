@@ -17,6 +17,7 @@ import { CLASS_TYPES, classLabel } from "@shared/registration";
 import QRCode from "@/components/event/QRCode";
 import { PageHeading } from "@/components/event/EventShell";
 import { useWorkspace } from "@/contexts/EventWorkspaceContext";
+import { sortGuests, type GuestSortField } from "@/lib/guest-sort";
 import {
   downloadText,
   hasRole,
@@ -69,6 +70,7 @@ export default function AdminGuests() {
   const { state, eventId } = useWorkspace();
   const { mutate, isPending, errorFor } = useWorkspaceMutation();
   const [query, setQuery] = useState("");
+  const [sortBy, setSortBy] = useState<GuestSortField>("name");
   const [showExcluded, setShowExcluded] = useState(false);
   const [draft, setDraft] = useState<GuestDraft>(emptyDraft);
   const [editing, setEditing] = useState<Guest | null>(null);
@@ -89,7 +91,7 @@ export default function AdminGuests() {
   const canManage = hasRole(state.role, guestManagerRoles);
   const attendanceOnly = state.event.mode === "attendance";
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const guests = state.guests.filter(guest => {
+  const guests = sortGuests(state.guests.filter(guest => {
     if (attendanceOnly && isExcludedFromEvent(state.event, guest) !== showExcluded) return false;
     if (!normalizedQuery) return true;
     return [
@@ -105,7 +107,7 @@ export default function AdminGuests() {
       guest.reportedChapter || "",
       guest.invitedBy || "",
     ].some(value => value.toLocaleLowerCase().includes(normalizedQuery));
-  });
+  }), sortBy);
 
   const submitGuest = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -300,6 +302,13 @@ export default function AdminGuests() {
               onChange={event => setQuery(event.target.value)}
               placeholder="搜尋姓名、分會、邀請人、班別、電話或票號"
             />
+          </label>
+          <label>
+            排序
+            <select value={sortBy} onChange={event => setSortBy(event.target.value as GuestSortField)}>
+              <option value="name">姓名</option>
+              <option value="phone">電話</option>
+            </select>
           </label>
         </div>
         <div className="mvp-data-table mvp-guests-table">

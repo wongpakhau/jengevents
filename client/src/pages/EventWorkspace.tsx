@@ -22,7 +22,7 @@ export default function EventWorkspace() {
         </div>
       </main>
     );
-  if (error) {
+  if (error && !state) {
     return (
       <main className="mvp-workspace">
         <section className="mvp-empty">
@@ -48,6 +48,8 @@ export default function EventWorkspace() {
 
   const scopeAllowed =
     ["owner", "admin", "project_manager"].includes(state.role) ||
+    (state.role === "merchant" && location === "/settlements") ||
+    (state.role === "draw" && location === "/draw") ||
     (state.role === "guest_manager" &&
       ["/", "/guests", "/seating"].includes(location));
   if (!scopeAllowed)
@@ -91,7 +93,7 @@ export default function EventWorkspace() {
       page = <AdminMerchants />;
       break;
     case "/settlements":
-      page = <AdminFinance />;
+      page = <AdminFinance key={eventId} />;
       break;
     case "/draw":
       page = <AdminDraw />;

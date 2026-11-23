@@ -296,6 +296,30 @@ export function buildDrawSnapshot(
     );
 }
 
+/**
+ * Attendance-only snapshot for the fixed Positive Spring draw. Every
+ * guest with a valid server-recorded check-in gets exactly one chance;
+ * receipts, ledger chances, and prior winners are intentionally irrelevant.
+ */
+export function buildCheckedInDrawSnapshot(
+  aggregate: Pick<EventAggregate, "guests">
+): DrawSnapshotEntry[] {
+  return aggregate.guests
+    .filter(
+      guest =>
+        typeof guest.checkedInAt === "string" &&
+        guest.checkedInAt.trim().length > 0 &&
+        !Number.isNaN(Date.parse(guest.checkedInAt))
+    )
+    .map(guest => ({
+      guestId: guest.id,
+      ticket: guest.ticket,
+      chances: 1,
+      ledgerIds: [],
+      receiptIds: [],
+    }));
+}
+
 export function selectWeightedWinner(
   snapshot: readonly DrawSnapshotEntry[],
   chooser: (maxExclusive: number) => number = max => randomInt(max)

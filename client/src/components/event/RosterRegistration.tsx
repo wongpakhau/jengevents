@@ -61,6 +61,7 @@ type NameDirectory = RosterNameDirectoryView & {
 };
 type RegistrationResult = { guest: Guest; invitation: Invitation };
 type Phase = "idle" | "matching" | "confirming";
+type NameDirectorySort = "name" | "phone";
 
 export const DESK_ERROR =
   "未能核對你的名單紀錄，請補充資料或到簽到台由工作人員協助；不會自動新增嘉賓。";
@@ -230,6 +231,7 @@ export default function RosterRegistration({ event, slug }: Props) {
   });
   const [search, setSearch] = useState<Search | null>(null);
   const [directory, setDirectory] = useState<NameDirectory | null>(null);
+  const [directorySort, setDirectorySort] = useState<NameDirectorySort>("name");
   const [directoryQuery, setDirectoryQuery] = useState("");
   const [selection, setSelection] = useState<RosterMatchView | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -444,7 +446,7 @@ export default function RosterRegistration({ event, slug }: Props) {
     }
   }
 
-  async function openNameDirectory() {
+  async function openNameDirectory(sort = directorySort) {
     if (!open || !slug || busy.current || pendingRef.current) return;
     if (!fieldsRef.current.consent) {
       setError("請先閱讀並同意資料使用說明。");
@@ -465,7 +467,7 @@ export default function RosterRegistration({ event, slug }: Props) {
       const result = await api<unknown>(
         `/public/events/${encodeURIComponent(slug)}/roster-names`,
         "POST",
-        { consent: true }
+        { consent: true, sort }
       );
       if (!current(version, scope)) return;
       const view = nameDirectoryView(result);
@@ -956,7 +958,7 @@ export default function RosterRegistration({ event, slug }: Props) {
               <span className="event-mobile-eyebrow">姓名索引</span>
               <h2 id={id("directory-title")}>所有嘉賓姓名</h2>
               <p className="event-mobile-help">
-                以下只顯示姓名，不含電話、分會、邀請人、座位或票號。選擇姓名只會填入查找欄，仍需自行核對本人紀錄。
+                以下只顯示姓名，不含電話、分會、邀請人、座位或票號。電話排序只用於排列，不會公開電話；選擇姓名只會填入查找欄，仍需自行核對本人紀錄。
               </p>
               <label className="event-mobile-label" htmlFor={id("directory-filter")}>
                 搜尋名單姓名
@@ -972,6 +974,30 @@ export default function RosterRegistration({ event, slug }: Props) {
               <p className="roster-registration__status" role="status">
                 顯示 {filteredDirectoryNames.length} / {visibleDirectory.names.length} 個姓名
               </p>
+              <div role="group" aria-label="名單排序">
+                <button
+                  type="button"
+                  className="event-mobile-secondary"
+                  onClick={() => {
+                    setDirectorySort("name");
+                    void openNameDirectory("name");
+                  }}
+                  disabled={phase !== "idle" || accessPending || directorySort === "name"}
+                >
+                  姓名排序
+                </button>
+                <button
+                  type="button"
+                  className="event-mobile-secondary"
+                  onClick={() => {
+                    setDirectorySort("phone");
+                    void openNameDirectory("phone");
+                  }}
+                  disabled={phase !== "idle" || accessPending || directorySort === "phone"}
+                >
+                  電話排序（電話不公開）
+                </button>
+              </div>
               {filteredDirectoryNames.length ? (
                 <ul className="roster-registration__directory-list">
                   {filteredDirectoryNames.map((name, index) => (

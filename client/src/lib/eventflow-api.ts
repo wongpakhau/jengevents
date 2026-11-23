@@ -59,6 +59,7 @@ export async function api<T>(
   return decode<T>(
     await apiFetch(path, {
       method,
+      ...(method === "GET" ? { cache: "no-store" as const } : {}),
       headers: {
         ...(method !== "GET" ? { "Content-Type": "application/json" } : {}),
         ...(key ? { "Idempotency-Key": key } : {}),

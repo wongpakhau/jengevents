@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import QRCodeLibrary from "qrcode";
+import { Link } from "wouter";
 import {
   CheckCircle2,
   CircleAlert,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { api, idempotencyKey, money } from "@/lib/eventflow-api";
 import { useWorkspace } from "@/contexts/EventWorkspaceContext";
+import { stateScopeKey } from "@/lib/workspace-scope";
 import type { ReceiptIssued } from "@shared/eventflow";
 import "@/styles/event-mobile.css";
 
@@ -80,12 +82,19 @@ function QRCode({ value, title }: { value: string; title: string }) {
 }
 
 export default function MerchantTerminal() {
+  const { state, eventId } = useWorkspace();
+  return <MerchantTerminalForScope key={stateScopeKey(eventId, state)} />;
+}
+
+function MerchantTerminalForScope() {
   const {
     session,
     state,
+    eventId,
     loading,
     error: workspaceError,
     reload,
+    lastUpdatedAt,
   } = useWorkspace();
   const [merchantId, setMerchantId] = useState("");
   const [amount, setAmount] = useState("");
@@ -95,8 +104,10 @@ export default function MerchantTerminal() {
   const [formError, setFormError] = useState<string | null>(null);
   const receiptKeyRef = useRef(idempotencyKey());
   const lastAttemptSignatureRef = useRef<string | null>(null);
+  const scopeKeyRef = useRef("");
 
   const merchants = state?.merchants ?? [];
+  const scopeKey = stateScopeKey(eventId, state);
   const event = state?.event;
   const roleAllowed =
     state &&
@@ -104,6 +115,18 @@ export default function MerchantTerminal() {
   const amountCents = toCents(amount);
   const selectedMerchant =
     merchants.find(merchant => merchant.id === merchantId) ?? null;
+
+  useEffect(() => {
+    scopeKeyRef.current = scopeKey;
+    setMerchantId("");
+    setAmount("");
+    setReference("");
+    setIssued(null);
+    setFormError(null);
+    setSubmitting(false);
+    lastAttemptSignatureRef.current = null;
+    receiptKeyRef.current = idempotencyKey();
+  }, [scopeKey]);
 
   useEffect(() => {
     if (!merchants.length) {
@@ -149,6 +172,7 @@ export default function MerchantTerminal() {
 
     setSubmitting(true);
     setFormError(null);
+    const requestScope = scopeKeyRef.current;
     try {
       const result = await api<ReceiptIssued>(
         `/events/${state.event.id}/receipts`,
@@ -156,8 +180,10 @@ export default function MerchantTerminal() {
         payload,
         receiptKeyRef.current
       );
-      setIssued(result);
-      void reload();
+      if (requestScope === scopeKeyRef.current) {
+        setIssued(result);
+        void reload();
+      }
     } catch (requestError) {
       // Preserve both payload and key so an identical retry is server-idempotent.
       setFormError(errorMessage(requestError));
@@ -184,7 +210,7 @@ export default function MerchantTerminal() {
       </main>
     );
   }
-  if (workspaceError) {
+  if (workspaceError && !state) {
     return (
       <main className="event-mobile">
         <section className="event-mobile-card event-mobile-status event-mobile-status--error">
@@ -231,6 +257,13 @@ export default function MerchantTerminal() {
         </span>
         <h1>{event?.brand.name || "活動"}</h1>
         <p>輸入實際消費並確認，伺服器才會建立一張可領取的專屬憑證。</p>
+        <p className="event-mobile-help" role="status">
+          已記錄營業額約每 5 秒更新；{lastUpdatedAt ? `上次更新：${expiryLabel(new Date(lastUpdatedAt).toISOString())}` : "正在取得最新資料…"}。這不是支付平台已收款資料。
+          {workspaceError && ` ${workspaceError}`}
+        </p>
+        <Link href="/settlements" className="event-mobile-primary">
+          查看商戶對帳
+        </Link>
       </header>
 
       {!issued ? (

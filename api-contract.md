@@ -28,18 +28,20 @@ POST /events/:eventId/merchants {name} -> Merchant
 PATCH /events/:eventId/merchants/:id {active:boolean} -> Merchant
 POST /events/:eventId/receipts {merchantId,amountCents,reference:string} -> ReceiptIssued (owner/admin or own authorized merchant; 10% round half-up per transaction; expires24h; rule snapshot; no fake chances in request)
 POST /events/:eventId/receipts/:id/void {reason} -> Receipt (owner/admin; negate fee and ledger if safe, preserve audit; if included in previous draw snapshot mark drawException and don't silently alter draw)
-GET /events/:eventId/settlements -> Settlement[] owner/admin
-POST /events/:eventId/payments {merchantId,amountCents,reference} -> Payment owner/admin, no automatic charges
-GET /events/:eventId/export -> CSV attachment, owner/admin; formula-safe cells, include receipt/fee/paid/void status; no tokens. CSV acceptable accounting export for MVP.
+GET /events/:eventId/settlements -> Settlement[] owner/admin/project_manager see all merchants; merchant sees only their own event-scoped merchant. Server does not accept a merchant selector from the request. Private, no-store.
+POST /events/:eventId/payments {merchantId,amountCents,reference} -> Payment owner/admin/project_manager, no automatic charges
+GET /events/:eventId/export -> CSV attachment, owner/admin/project_manager; formula-safe cells, include receipt/fee/paid/void status; no tokens. Private, no-store. CSV acceptable accounting export for MVP.
 
 ## Draw
 POST /events/:eventId/prizes {name} -> Prize
 POST /events/:eventId/draws {prizeId} -> Draw owner/admin/draw; immutable weighted snapshot of positive valid chances; randomInt or cryptographically secure picker, one result per prize; Idempotency-Key same draw, new key same prize rejected. Default exclude previous winners, no automatic chance consumption; preserve all ledger/snapshot sources. Winner data only authorized draw staff, not public guests until revealed.
+POST /events/:eventId/draws/positive-spring-red-packet {} -> Draw; owner/admin/project_manager/draw for the fixed 正向春茗 event only, on or after 2027-01-31 17:00 Hong Kong time, one manual HK$1,000 draw from valid checked-in guests at one chance each. No consumption or prior-winner restriction; idempotency, event lock and dedicated prize prevent duplicate draws. No payment is made.
 POST /events/:eventId/draws/:id/reveal {} -> Draw idempotent owner/admin/draw; never selects a new winner. Screen /screen uses authenticated workspace state, not publicly guessable access. Stage animates only already server-chosen ticket, after7s reveal; reconnect uses original draw and elapsed createdAt, replay only reruns visuals.
 
 ## Guest public capability (no OAuth required)
 GET /public/events/:slug -> EventInfo safe public branding/settings
 POST /public/events/:slug/register {name,email?,phone?,consent:true} -> {guest,invitation} only if registrationOpen. No PII exposed by GET. Maxreasonable registration with rate limiting.
+POST /public/events/:slug/quick-names {sort?:'name'|'phone'} and POST /public/events/:slug/roster-names {consent:true,sort?:'name'|'phone'} -> {names:string[]} only. Default name sorting; phone sorting is performed server-side and does not return phone values or sorting keys, though it reveals the relative ordering of names by phone. Existing event, participant, consent and rate-limit restrictions remain in force.
 GET /guest with header X-Guest-Token -> GuestView (own guest/own receipts/revealed draws only)
 POST /guest/claim {token:receiptToken} with X-Guest-Token -> ClaimResult (single claim, same guest replay idempotent, cross guest409, cross event403, expired410; transaction and guest locks/atomicity). Per-transaction floor(amount/threshold); cumulative difference of floors per rule version, no duplicate credit.
 

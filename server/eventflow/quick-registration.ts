@@ -189,23 +189,44 @@ function publicView(state: EventAggregate, guest: Guest): RosterMatchView {
 
 /** The user requested the same public name-only list for all event organizations. */
 export function quickGuestNames(
-  state: EventAggregate
+  state: EventAggregate,
+  sort: "name" | "phone" = "name"
 ): RosterNameDirectoryView {
   assertOpen(state);
-  const names = new Map<string, string>();
+  const names = new Map<string, { name: string; phone: string; index: number }>();
+  let index = 0;
   for (const guest of state.guests) {
     if (!active(state, guest) || typeof guest.name !== "string") continue;
     const name = guest.name.trim();
     const key = normalizedRosterText(name);
-    if (name && name.length <= 120 && key && !names.has(key))
-      names.set(key, name);
+    if (name && name.length <= 120 && key && !names.has(key)) {
+      let phone = "";
+      try {
+        if (guest.phone.trim()) phone = registrationPhone(guest.phone);
+      } catch {
+        // Malformed legacy phones behave like an empty phone for ordering only.
+      }
+      names.set(key, { name, phone, index });
+      index += 1;
+    }
   }
   if (names.size > 10_000)
     throw new DomainError(503, "DIRECTORY_TOO_LARGE", "請到簽到台查詢名單");
+  const entries = [...names.values()];
+  entries.sort((a, b) => {
+    if (sort === "phone") {
+      const aEmpty = !a.phone;
+      const bEmpty = !b.phone;
+      if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
+      if (a.phone !== b.phone) return a.phone.localeCompare(b.phone);
+    }
+    return (
+      a.name.localeCompare(b.name, "zh-Hant", { sensitivity: "base" }) ||
+      a.index - b.index
+    );
+  });
   return {
-    names: [...names.values()].sort((a, b) =>
-      a.localeCompare(b, "zh-Hant", { sensitivity: "base" })
-    ),
+    names: entries.map(entry => entry.name),
   };
 }
 

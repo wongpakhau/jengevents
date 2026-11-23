@@ -8,6 +8,13 @@ export type Role =
   | "merchant";
 export type EventMode = "full" | "attendance";
 
+/** Fixed identity and Hong Kong instant for the one-off on-site red-packet draw. */
+export const POSITIVE_SPRING_EVENT_ID = "a6627e4a-0492-4c0a-b6a3-8bb11cb197fb";
+export const POSITIVE_SPRING_RED_PACKET_KEY = "positive-spring-2027-red-packet-hkd1000-v1";
+/** Fixed server-owned prize identity; ordinary prize creation must never claim it. */
+export const POSITIVE_SPRING_RESERVED_PRIZE_ID = "6f5b7d2e-1c44-4e9a-9f3b-2c7d8a1e5b60";
+export const POSITIVE_SPRING_DRAW_AT = "2027-01-31T09:00:00.000Z";
+
 export type Brand = {
   name: string;
   color: string;
@@ -147,12 +154,20 @@ export type Payment = {
   createdAt: string;
 };
 
-export type Prize = { id: string; name: string; drawId: string | null };
+export type Prize = {
+  id: string;
+  name: string;
+  drawId: string | null;
+  /** Server-only stable identity for system-managed one-off prizes. */
+  key?: string;
+};
 
 export type Draw = {
   id: string;
   prizeId: string;
   prizeName: string;
+  /** Present on the one-off server-managed draw, never accepted from clients. */
+  specialKey?: string;
   winner: {
     id: string;
     name: string;

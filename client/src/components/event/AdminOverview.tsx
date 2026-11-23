@@ -17,7 +17,7 @@ import RegistrationQRPanel from "./RegistrationQRPanel";
 import { eventGuests } from "@shared/eventflow";
 
 export default function AdminOverview() {
-  const { state } = useWorkspace();
+  const { state, error: workspaceError, lastUpdatedAt } = useWorkspace();
   if (!state) return null;
 
   const { event, tables, receipts, payments, prizes, draws } = state;
@@ -120,6 +120,13 @@ export default function AdminOverview() {
             : "數字直接來自目前活動紀錄；消費、機會與對帳均以伺服器資料為準。"
         }
       />
+      <p className="mvp-data-freshness" role="status">
+        已記錄營業額約每 5 秒更新，來源是有效消費憑證；這不是支付平台已收款資料。{" "}
+        {lastUpdatedAt
+          ? `上次活動資料更新：${formatIso(new Date(lastUpdatedAt).toISOString())}`
+          : "正在取得活動資料…"}
+        {workspaceError && ` ${workspaceError}`}
+      </p>
       <section className="mvp-event-hero">
         <div>
           <span className="mvp-kicker">

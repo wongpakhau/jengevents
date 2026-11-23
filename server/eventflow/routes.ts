@@ -16,7 +16,14 @@ import type {
   Session,
   WorkspaceState,
 } from "../../shared/eventflow";
-import { eventGuests, isExcludedFromEvent } from "../../shared/eventflow";
+import {
+  eventGuests,
+  isExcludedFromEvent,
+  POSITIVE_SPRING_DRAW_AT,
+  POSITIVE_SPRING_EVENT_ID,
+  POSITIVE_SPRING_RED_PACKET_KEY,
+  POSITIVE_SPRING_RESERVED_PRIZE_ID,
+} from "../../shared/eventflow";
 import { normalizeEventDate } from "../../shared/event-date";
 import { validLogoAddress } from "../../shared/brand";
 import {
@@ -51,6 +58,7 @@ import {
   DomainError,
   assertEventScope,
   assertSeatChange,
+  buildCheckedInDrawSnapshot,
   buildDrawSnapshot,
   cumulativeClaimDelta,
   feeForCents,
@@ -189,6 +197,14 @@ function bodyObject(req: Request): Record<string, unknown> {
     throw new DomainError(400, "INVALID_BODY", "請求內容格式不正確");
   }
   return req.body as Record<string, unknown>;
+}
+
+function nameDirectorySort(
+  body: Record<string, unknown>
+): "name" | "phone" {
+  if (body.sort === undefined || body.sort === "name") return "name";
+  if (body.sort === "phone") return "phone";
+  throw new DomainError(400, "VALIDATION_ERROR", "名單排序方式不正確");
 }
 
 function text(
@@ -994,6 +1010,74 @@ function ensureMerchantScope(access: Access, merchantId: string): void {
   }
 }
 
+function hongKongCalendarDate(value: string): string | null {
+  if (/^\d{4}-\d{2}-\d{2}$/u.test(value)) return value;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Hong_Kong",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(parsed);
+}
+
+function assertPositiveSpringDrawReady(aggregate: EventAggregate): Prize {
+  if (aggregate.event.status === "closed") {
+    throw new DomainError(409, "SPECIAL_DRAW_EVENT_CLOSED", "活動已關閉，不可進行正向春茗現場抽獎");
+  }
+  if (aggregate.event.status !== "draft" && aggregate.event.status !== "live") {
+    throw new DomainError(409, "SPECIAL_DRAW_EVENT_STATE_INVALID", "活動狀態不容許進行正向春茗現場抽獎");
+  }
+  if (hongKongCalendarDate(aggregate.event.date) !== "2027-01-31") {
+    throw new DomainError(409, "SPECIAL_DRAW_EVENT_DATE_MISMATCH", "活動日期與正向春茗現場抽獎不一致");
+  }
+
+  const specialName = "HK$1,000 利是";
+  const identityPrizes = aggregate.prizes.filter(prize =>
+    prize.id === POSITIVE_SPRING_RESERVED_PRIZE_ID ||
+    prize.key === POSITIVE_SPRING_RED_PACKET_KEY ||
+    prize.name === specialName
+  );
+  if (identityPrizes.length > 1) {
+    throw new DomainError(409, "SPECIAL_DRAW_PRIZE_INVALID", "正向春茗利是獎項識別不唯一，已停止抽獎");
+  }
+  let prize = identityPrizes[0];
+  const historicalDraws = aggregate.draws.filter(draw =>
+    draw.specialKey === POSITIVE_SPRING_RED_PACKET_KEY ||
+    draw.prizeId === POSITIVE_SPRING_RESERVED_PRIZE_ID ||
+    draw.prizeName === specialName
+  );
+  if (!prize) {
+    if (historicalDraws.length > 0) {
+      throw new DomainError(409, "SPECIAL_DRAW_PRIZE_INVALID", "正向春茗利是歷史抽獎缺少保留獎項，已停止抽獎");
+    }
+    prize = { id: POSITIVE_SPRING_RESERVED_PRIZE_ID, name: specialName, key: POSITIVE_SPRING_RED_PACKET_KEY, drawId: null };
+    aggregate.prizes.push(prize);
+  }
+  if (prize.id !== POSITIVE_SPRING_RESERVED_PRIZE_ID || prize.key !== POSITIVE_SPRING_RED_PACKET_KEY || prize.name !== specialName) {
+    throw new DomainError(409, "SPECIAL_DRAW_PRIZE_INVALID", "正向春茗利是獎項資料已被修改，已停止抽獎");
+  }
+  const linkedDraws = aggregate.draws.filter(draw =>
+    draw.specialKey === POSITIVE_SPRING_RED_PACKET_KEY ||
+    draw.prizeId === POSITIVE_SPRING_RESERVED_PRIZE_ID ||
+    draw.prizeName === specialName
+  );
+  if (prize.drawId) {
+    const linkedDraw = aggregate.draws.find(draw => draw.id === prize.drawId);
+    if (!linkedDraw || linkedDraw.prizeId !== prize.id || linkedDraw.specialKey !== POSITIVE_SPRING_RED_PACKET_KEY || linkedDraw.prizeName !== specialName || linkedDraws.length !== 1) {
+      throw new DomainError(409, "SPECIAL_DRAW_PRIZE_INVALID", "正向春茗利是獎項關聯不完整，已停止抽獎");
+    }
+    throw new DomainError(409, "SPECIAL_DRAW_ALREADY_DONE", "正向春茗利是已完成抽獎");
+  }
+  if (linkedDraws.length > 0) {
+    if (linkedDraws.length === 1 && linkedDraws[0].prizeId === prize.id && linkedDraws[0].specialKey === POSITIVE_SPRING_RED_PACKET_KEY && linkedDraws[0].prizeName === specialName)
+      throw new DomainError(409, "SPECIAL_DRAW_ALREADY_DONE", "正向春茗利是已完成抽獎");
+    throw new DomainError(409, "SPECIAL_DRAW_PRIZE_INVALID", "正向春茗利是獎項關聯不完整，已停止抽獎");
+  }
+  return prize;
+}
+
 function recordLedger(
   aggregate: EventAggregate,
   input: {
@@ -1438,6 +1522,7 @@ export function registerEventFlowRoutes(app: Express): void {
   router.get(
     "/events/:eventId/state",
     route(async (req, res) => {
+      res.setHeader("Cache-Control", "private, no-store");
       const user = await authenticated(req);
       const row = await readEvent(req.params.eventId);
       const access = requireRole(await readAccess(row, user), [
@@ -2588,16 +2673,23 @@ export function registerEventFlowRoutes(app: Express): void {
   router.get(
     "/events/:eventId/settlements",
     route(async (req, res) => {
+      res.setHeader("Cache-Control", "private, no-store");
       const user = await authenticated(req);
       const row = await readEvent(req.params.eventId);
-      requireRole(await readAccess(row, user), [
+      const access = requireRole(await readAccess(row, user), [
         "owner",
         "admin",
         "project_manager",
+        "merchant",
       ]);
       const aggregate = parseAggregate(row.event_state);
       assertFeatureEnabled(aggregate.event, "commerce");
-      const settlements = aggregate.merchants.map(merchant =>
+      // Merchant membership is event-scoped and the server chooses the one
+      // authorized merchant; request parameters never select another stall.
+      const merchants = access.role === "merchant"
+        ? aggregate.merchants.filter(merchant => merchant.id === access.merchantId)
+        : aggregate.merchants;
+      const settlements = merchants.map(merchant =>
         merchantSettlement(merchant, aggregate.receipts, aggregate.payments)
       );
       res.json(settlements);
@@ -2658,6 +2750,7 @@ export function registerEventFlowRoutes(app: Express): void {
   router.get(
     "/events/:eventId/export",
     route(async (req, res) => {
+      res.setHeader("Cache-Control", "private, no-store");
       const user = await authenticated(req);
       const row = await readEvent(req.params.eventId);
       requireRole(await readAccess(row, user), [
@@ -2734,6 +2827,13 @@ export function registerEventFlowRoutes(app: Express): void {
           if (prizeIndex < 0)
             throw new DomainError(404, "PRIZE_NOT_FOUND", "找不到獎項");
           const prize = aggregate.prizes[prizeIndex];
+          if (prize.id === POSITIVE_SPRING_RESERVED_PRIZE_ID || prize.key === POSITIVE_SPRING_RED_PACKET_KEY) {
+            throw new DomainError(
+              409,
+              "SPECIAL_DRAW_USE_DEDICATED_ROUTE",
+              "正向春茗利是必須使用專屬現場抽獎流程"
+            );
+          }
           if (prize.drawId)
             throw new DomainError(
               409,
@@ -2835,6 +2935,75 @@ export function registerEventFlowRoutes(app: Express): void {
     })
   );
 
+  router.post(
+    "/events/:eventId/draws/positive-spring-red-packet",
+    route(async (req, res) => {
+      const user = await authenticatedMutation(req);
+      bodyObject(req);
+      const response = await withLockedStaffEvent(
+        req,
+        user,
+        req.params.eventId,
+        "draw.positive_spring_red_packet",
+        ["owner", "admin", "project_manager", "draw"],
+        async ({ aggregate, now }) => {
+          if (aggregate.event.id !== POSITIVE_SPRING_EVENT_ID) {
+            throw new DomainError(404, "SPECIAL_DRAW_NOT_FOUND", "找不到此專屬現場抽獎");
+          }
+          assertFeatureEnabled(aggregate.event, "draw");
+          if (now.getTime() < Date.parse(POSITIVE_SPRING_DRAW_AT)) {
+            throw new DomainError(409, "DRAW_NOT_STARTED", "正向春茗現場抽獎須於香港時間2027年1月31日下午5時或之後啟動");
+          }
+          const existingPrize = assertPositiveSpringDrawReady(aggregate);
+          if (aggregate.draws.some(draw => !draw.revealedAt)) {
+            throw new DomainError(409, "DRAW_IN_PROGRESS", "請先完成本輪揭曉，再開始下一輪抽獎");
+          }
+          const snapshot = buildCheckedInDrawSnapshot(aggregate);
+          const picked = selectWeightedWinner(snapshot);
+          const winner = aggregate.guests.find(
+            guest => guest.id === picked.winnerGuestId
+          );
+          if (!winner) {
+            throw new DomainError(503, "DRAW_STATE_INVALID", "抽獎快照資料不完整");
+          }
+          const tableNumber = winner.tableId
+            ? (aggregate.tables.find(table => table.id === winner.tableId)?.number ?? null)
+            : null;
+          const draw: InternalDraw = {
+            id: randomUUID(),
+            prizeId: existingPrize.id,
+            prizeName: "HK$1,000 利是",
+            specialKey: POSITIVE_SPRING_RED_PACKET_KEY,
+            winner: {
+              id: winner.id,
+              name: winner.name,
+              ticket: winner.ticket,
+              tableNumber,
+            },
+            winnerGuestId: winner.id,
+            totalChances: picked.totalChances,
+            eligibleGuests: picked.eligibleGuests,
+            createdAt: nowIso(now),
+            revealedAt: null,
+            snapshot,
+          };
+          aggregate.draws.push(draw);
+          const index = aggregate.prizes.findIndex(prize => prize.id === existingPrize.id);
+          aggregate.prizes[index] = { ...existingPrize, drawId: draw.id };
+          addAudit(
+            aggregate,
+            "draw.positive_spring_red_packet.created",
+            `user:${user.id}`,
+            "已以已簽到嘉賓等權快照手動抽出正向春茗HK$1,000利是",
+            now
+          );
+          return drawDto(draw);
+        }
+      );
+      res.status(201).json(response);
+    })
+  );
+
   router.get(
     "/public/events/:slug",
     route(async (req, res) => {
@@ -2855,13 +3024,13 @@ export function registerEventFlowRoutes(app: Express): void {
       assertSameOriginJson(req);
       assertRateLimit("public-roster-names", clientKey(req), 3000, 10 * 60 * 1000);
       await readParticipantSession(req);
-      bodyObject(req);
+      const body = bodyObject(req);
       const slug = text(req.params.slug, "活動識別", { max: 160 })!;
       const rows = await readRows<PublicEventRow>(
         "SELECT id,tenant_id,owner_user_id,event_state FROM ef_events WHERE slug = ? AND owner_user_id IS NOT NULL AND EXISTS (SELECT 1 FROM ef_organizations o WHERE o.id = ef_events.tenant_id AND o.owner_user_id IS NOT NULL) LIMIT 1", [slug]
       );
       if (!rows.length || rows[0].owner_user_id == null) throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
-      res.json(quickGuestNames(quickAggregate(rows[0])));
+      res.json(quickGuestNames(quickAggregate(rows[0]), nameDirectorySort(body)));
     })
   );
 
@@ -2906,14 +3075,19 @@ export function registerEventFlowRoutes(app: Express): void {
       assertSameOriginJson(req);
       assertRateLimit("public-roster-names", clientKey(req), 3000, 10 * 60 * 1000);
       await readParticipantSession(req);
-      bodyObject(req);
+      const body = bodyObject(req);
       const slug = text(req.params.slug, "活動識別", { max: 160 })!;
       const rows = await readRows<PublicEventRow>(
         "SELECT id,tenant_id,owner_user_id,event_state FROM ef_events WHERE slug = ? AND owner_user_id IS NOT NULL AND EXISTS (SELECT 1 FROM ef_organizations o WHERE o.id = ef_events.tenant_id AND o.owner_user_id IS NOT NULL) LIMIT 1",
         [slug]
       );
       if (!rows.length || rows[0].owner_user_id == null) throw new DomainError(404, "EVENT_NOT_FOUND", "找不到活動");
-      res.json(listRosterGuestNames(parseAggregate(rows[0].event_state)));
+      res.json(
+        listRosterGuestNames(
+          parseAggregate(rows[0].event_state),
+          nameDirectorySort(body)
+        )
+      );
     })
   );
 

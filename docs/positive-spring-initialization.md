@@ -14,7 +14,7 @@
 
 ## bp.jengevents.com 登入入口
 
-2026-11-23 使用者確認目前使用 `https://bp.jengevents.com`；唯讀正式版本查詢確認此網域指向本網站。工作區已加入此精確可信來源，保留原有 `https://eventflow-ctmsgwbx.manus.space`；沒有加入尚未接通的 `www.jengevents.com` 或任何萬用字元。
+2026-11-23 使用者確認目前使用 `https://bp.jengevents.com`；唯讀正式版本查詢確認此網域指向本網站。首個修正版本已加入此精確可信來源並發布，保留原有 `https://eventflow-ctmsgwbx.manus.space`；沒有加入尚未接通的 `www.jengevents.com` 或任何萬用字元。
 
 Google Cloud 專案 API 3D 的網頁 OAuth 用戶端已核對：JavaScript 來源為 `https://bp.jengevents.com`，已授權重新導向 URI 包含 `https://bp.jengevents.com/api/auth/google/callback`；以上原已存在，沒有重複修改。已儲存 `openid`、`userinfo.email` 及 `userinfo.profile` 三項非機密基本登入範圍，沒有加入機密或受限制範圍。新 Client ID 與配對密鑰已透過安全設定保存；工作區狀態顯示 `configured:true`，但這不是正式網站或真人登入驗證。
 
@@ -22,4 +22,4 @@ Google 品牌設定目前的應用程式名稱為「Manus」，授權網域包�
 
 工作區修正包含新增 cj93128@gmail.com 為第五位系統擁有人，通過 Google 登入、擁有人、待認領隔離及登出共 214 項回歸測試，並通過 TypeScript 型別檢查。測試移除 `DATABASE_URL` 與 `DRIZZLE_DATABASE_URL` 環境變數，以 mock 的 Google 身份與資料庫操作驗證，沒有使用真人帳戶或修改正式資料。
 
-截至 2026-11-23 16:44，修正仍只保留在工作區，正式 bp 入口回報 Google 直接登入未設定。使用者其後明確授權立即發布登入修正及第五位擁有人；Auto Publish 已開啟，發布結果及真人登入、認領仍需驗證，不能因版本提交就宣稱完成。
+使用者已授權立即發布登入修正及第五位擁有人；首個修正版本 `a135d11f3914d7aff75d18dd7b61484310f7a254` 部署後，正式入口的來源辨識仍失敗。其後修正為正式 Google 登入固定使用 `https://bp.jengevents.com`，不以未經驗證的代理標頭選擇 callback；自其他正式網域啟動 Google 登入時會導向 bp，登入後留在 bp，Cookie 仍限於各自的主機。登入修正版本 `87577f02831fefeedd9d408780fee41b22af6fbb` 已上線；正式狀態回報已設定，登入入口可導向 Google，且回調精確匹配 bp。尚未真人登入、驗證擁有人或認領活動。使用者其後已授權發布新抽獎、商戶對帳及電話排序；各功能仍須在正式網站由真人驗收，發布狀態應以實際部署結果為準。
