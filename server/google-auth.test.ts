@@ -415,6 +415,88 @@ describe("Google route registration and configuration", () => {
   });
 });
 
+describe("Confirmed deployment origins: bp.jengevents.com", () => {
+  const origin = "https://bp.jengevents.com";
+  const host = new URL(origin).host;
+
+  beforeEach(async () => {
+    const actual = await vi.importActual<
+      typeof import("./_core/googleOrigins")
+    >("./_core/googleOrigins");
+    mocks.trustedOrigins.splice(
+      0,
+      mocks.trustedOrigins.length,
+      ...actual.GOOGLE_TRUSTED_ORIGINS
+    );
+  });
+
+  it("supports verified direct Google login on the confirmed custom domain", async () => {
+    expect(mocks.trustedOrigins).toContain(origin);
+    const status = await invoke(
+      "GET",
+      "/api/auth/google/status",
+      request({ headers: { host } })
+    );
+    expect(status.body).toEqual({ configured: true, loginPath: START });
+
+    const transaction = await begin("/access", host);
+    expect(
+      new URL(transaction.res.location).searchParams.get("redirect_uri")
+    ).toBe(`${origin}${CALLBACK}`);
+    tokenResponse(await idToken(transaction.nonce));
+    const callback = await invoke(
+      "GET",
+      CALLBACK,
+      callbackRequest(transaction, {}, host)
+    );
+    expect(callback.location).toBe(`${origin}/access`);
+    const session = callback.cookies.find(
+      cookie => cookie.name === GOOGLE_SESSION_COOKIE
+    );
+    expect(session).toBeDefined();
+    await expect(
+      authenticateGoogleRequest(sessionRequest(session!.value, { host }))
+    ).resolves.toMatchObject({
+      loginMethod: "google_direct",
+      authProvider: "google",
+      emailVerified: true,
+    });
+  });
+
+  it.each([
+    "www.jengevents.com",
+    "jengevents.com",
+    "sub.bp.jengevents.com",
+    "bp.jengevents.com.attacker.invalid",
+    "bp.jengevents.com:8443",
+  ])("does not expand trust to %s", async unknownHost => {
+    const req = request({
+      headers: { host: unknownHost, "x-forwarded-host": host },
+    });
+    expect((await invoke("GET", "/api/auth/google/status", req)).body).toEqual({
+      configured: false,
+      loginPath: START,
+    });
+    expectError(await invoke("GET", START, req), "top_level_required");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.read).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+
+  it("does not allow a Manus-origin transaction to complete on bp", async () => {
+    const transaction = await begin(
+      "/access",
+      "eventflow-ctmsgwbx.manus.space"
+    );
+    expectError(
+      await invoke("GET", CALLBACK, callbackRequest(transaction, {}, host)),
+      "state_invalid"
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+});
+
 describe("Google start: browser CSRF binding, PKCE and safe redirects", () => {
   it("uses independent 256-bit state/nonce/verifier and correct S256 PKCE", async () => {
     const first = await begin("/join");

@@ -6,6 +6,7 @@ const OWNER_EMAILS = new Set([
   "mikilee1028@gmail.com",
   "yeeayeeahk@gmail.com",
   "garyyang020730@gmail.com",
+  "cj93128@gmail.com",
 ]);
 /** Only a verified direct Google identity is eligible; a Manus name/email is not sufficient. */
 export function isSystemOwner(

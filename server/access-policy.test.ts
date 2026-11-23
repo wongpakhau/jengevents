@@ -10,6 +10,7 @@ describe("system access policy", () => {
     "mikilee1028@gmail.com",
     "yeeayeeahk@gmail.com",
     "garyyang020730@gmail.com",
+    "cj93128@gmail.com",
   ])(
     "recognises only verified Google owner %s",
     email => {

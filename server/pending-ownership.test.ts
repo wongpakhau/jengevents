@@ -402,6 +402,7 @@ describe("pending ownership isolation", () => {
     "mikilee1028@gmail.com",
     "yeeayeeahk@gmail.com",
     "garyyang020730@gmail.com",
+    "cj93128@gmail.com",
   ])("allows verified system owner %s to claim the pending event", async email => {
     mock.user = owner(4, email);
     expect((await request("/system/pending-ownership")).status).toBe(200);
