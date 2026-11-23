@@ -1,4 +1,5 @@
 import { OAUTH_STATE_COOKIE, encodeOAuthState } from "@shared/const";
+import { googleStartUrl } from "@shared/google-login";
 
 export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 
@@ -27,9 +28,7 @@ export const startLogin = (returnTo?: string) => {
     returnTo ??
       `${window.location.pathname}${window.location.search}${window.location.hash}`
   );
-  window.location.assign(
-    `/api/auth/google/start?returnTo=${encodeURIComponent(safePath)}`
-  );
+  window.location.assign(googleStartUrl(safePath, import.meta.env.PROD));
 };
 
 // Preserve the original Manus OAuth entry point for existing integrations.

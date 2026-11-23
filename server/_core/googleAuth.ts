@@ -7,6 +7,7 @@ import {
 import type { CookieOptions, Express, Request, Response } from "express";
 import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
 import { COOKIE_NAME } from "../../shared/const";
+import { GOOGLE_PRODUCTION_ORIGIN } from "../../shared/google-login";
 import { ForbiddenError } from "../../shared/_core/errors";
 import * as db from "../db";
 import { GOOGLE_TRUSTED_ORIGINS } from "./googleOrigins";
@@ -114,9 +115,17 @@ function trustedOrigins(): Map<string, string> {
 }
 
 function trustedOriginForRequest(req: Request): string | undefined {
-  // Only the Host itself may select an explicitly configured origin. Forwarded
-  // headers are not authenticated here and must not turn an unknown host into
-  // a trusted one; the ingress must preserve the public Host.
+  // Production ingress may rebase Host. Google direct login is deliberately
+  // confined to a single configured origin, never selected by request headers.
+  // Host-only cookies bind the browser transaction and session to that origin;
+  // the production frontend initiates login at that same fixed origin.
+  if (process.env.NODE_ENV === "production") {
+    const expected = new URL(GOOGLE_PRODUCTION_ORIGIN);
+    const configured = trustedOrigins().get(expected.host);
+    return configured === GOOGLE_PRODUCTION_ORIGIN ? configured : undefined;
+  }
+  // Outside production preserve strict direct-Host checks for existing test
+  // and local integrations. Never trust unauthenticated forwarded headers.
   const value = req.headers.host;
   if (typeof value !== "string") return undefined;
   const host = value.trim().toLowerCase();

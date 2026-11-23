@@ -50,7 +50,7 @@ import {
   GOOGLE_SESSION_COOKIE,
   registerGoogleAuthRoutes,
 } from "./_core/googleAuth";
-
+import { GOOGLE_PRODUCTION_ORIGIN, googleStartUrl } from "../shared/google-login";
 const ORIGIN = "https://app.example.invalid";
 const HOST = new URL(ORIGIN).host;
 const SECOND_ORIGIN = "https://other.example.invalid:8443";
@@ -1346,5 +1346,95 @@ describe("Google logout: POST same-origin JSON CSRF policy", () => {
       })
     );
     expect(res.body).toEqual({ ok: true });
+  });
+});
+
+describe("Production Google login behind a rebasing ingress", () => {
+  const upstreamHost = "127.0.0.1:3000";
+  beforeEach(() => {
+    vi.stubEnv("NODE_ENV", "production");
+    mocks.trustedOrigins.push(GOOGLE_PRODUCTION_ORIGIN);
+  });
+
+  it("uses a fixed browser entry point in production and a relative one in development", () => {
+    expect(googleStartUrl("/access", true)).toBe(
+      `${GOOGLE_PRODUCTION_ORIGIN}${START}?returnTo=%2Faccess`
+    );
+    expect(googleStartUrl("/access", false)).toBe(`${START}?returnTo=%2Faccess`);
+  });
+
+  it.each(["attacker.invalid", "bp.jengevents.com", "other.invalid, bp.jengevents.com"]) (
+    "ignores forged forwarded host %s and uses the fixed callback",
+    async forwardedHost => {
+      const req = request({
+        headers: { host: upstreamHost, "x-forwarded-host": forwardedHost },
+      });
+      const status = await invoke("GET", "/api/auth/google/status", req);
+      expect(status.body).toEqual({ configured: true, loginPath: START });
+      const start = await invoke("GET", START, req);
+      expect(new URL(start.location).searchParams.get("redirect_uri")).toBe(
+        `${GOOGLE_PRODUCTION_ORIGIN}${CALLBACK}`
+      );
+      const transaction = start.cookies.find(cookie => cookie.name === TX_COOKIE)!;
+      expect(transaction.options).toMatchObject({ ...COOKIE_FLAGS });
+      expect(transaction.options.domain).toBeUndefined();
+      expect(decodeJwt(transaction.value).redirectUri).toBe(
+        `${GOOGLE_PRODUCTION_ORIGIN}${CALLBACK}`
+      );
+    }
+  );
+
+  it("rejects an unbound callback before any Google or database call", async () => {
+    const res = await invoke("GET", CALLBACK, request({
+      headers: { host: upstreamHost, "x-forwarded-host": "attacker.invalid" },
+      query: { state: "attacker-state", code: "unused" },
+    }));
+    expectError(res, "state_invalid");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+
+  it("completes a bound callback using the fixed URI and host-only session", async () => {
+    const transaction = await begin("/access", upstreamHost);
+    tokenResponse(await idToken(transaction.nonce));
+    const req = callbackRequest(transaction, {}, upstreamHost);
+    req.headers["x-forwarded-host"] = "attacker.invalid";
+    const res = await invoke("GET", CALLBACK, req);
+    expect(res.location).toBe(`${GOOGLE_PRODUCTION_ORIGIN}/access`);
+    expect(res.redirectStatus).toBe(303);
+    const session = res.cookies.find(cookie => cookie.name === GOOGLE_SESSION_COOKIE)!;
+    expect(session.options).toMatchObject(SESSION_COOKIE_FLAGS);
+    expect(session.options.domain).toBeUndefined();
+    const tokenRequest = fetchMock.mock.calls[0]![1];
+    expect(tokenRequest.body.get("redirect_uri")).toBe(`${GOOGLE_PRODUCTION_ORIGIN}${CALLBACK}`);
+    expect(tokenRequest.body.get("code_verifier")).toBe(transaction.verifier);
+    expect(await authenticateGoogleRequest(sessionRequest(session.value, {
+      host: upstreamHost,
+      "x-forwarded-host": "attacker.invalid",
+    }))).toMatchObject({ openId: USER.openId, authProvider: "google", emailVerified: true });
+  });
+
+  it("requires the fixed origin to remain explicitly configured", async () => {
+    mocks.trustedOrigins.splice(mocks.trustedOrigins.indexOf(GOOGLE_PRODUCTION_ORIGIN), 1);
+    const status = await invoke("GET", "/api/auth/google/status", request({ headers: { host: upstreamHost } }));
+    expect(status.body).toEqual({ configured: false, loginPath: START });
+    expectError(await invoke("GET", START, request({ headers: { host: upstreamHost } })), "top_level_required");
+  });
+
+  it("accepts only fixed-origin same-origin JSON logout regardless of forwarded host", async () => {
+    const headers = {
+      host: upstreamHost,
+      "x-forwarded-host": "attacker.invalid",
+      origin: GOOGLE_PRODUCTION_ORIGIN,
+      "content-type": "application/json",
+      "sec-fetch-site": "same-origin",
+    };
+    const accepted = await invoke("POST", LOGOUT, request({ headers }));
+    expect(accepted.body).toEqual({ ok: true });
+    const rejected = await invoke("POST", LOGOUT, request({
+      headers: { ...headers, origin: "https://attacker.invalid" },
+    }));
+    expect(rejected.statusCode).toBe(403);
+    expect(rejected.cleared).toEqual([]);
   });
 });

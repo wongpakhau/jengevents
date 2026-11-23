@@ -6,6 +6,7 @@ import { api, idempotencyKey } from "@/lib/eventflow-api";
 import { eventDateFromFields } from "@/lib/event-date";
 import { startLogin } from "@/const";
 import type { EventInfo, EventProgram } from "@shared/eventflow";
+import { GOOGLE_PRODUCTION_ORIGIN } from "@shared/google-login";
 import "@/styles/access-management.css";
 import ParticipantLoginButton from "./ParticipantLoginButton";
 
@@ -190,6 +191,9 @@ export function GoogleLoginButton({ returnTo }: { returnTo?: string }) {
       >
         {starting ? "正在前往 Google…" : "使用 Google 帳戶登入"}
       </button>
+      {import.meta.env.PROD && window.location.origin !== GOOGLE_PRODUCTION_ORIGIN && (
+        <small>Google 登入會前往 bp.jengevents.com，完成後將留在正式網站。</small>
+      )}
       {configured === null && !statusError && (
         <small role="status">正在確認 Google 登入設定…</small>
       )}
