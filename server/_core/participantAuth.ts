@@ -23,6 +23,7 @@ const SESSION_CLAIMS = new Set(["iss", "aud", "sub", "iat", "exp", "role"]);
 // Match the Google session's cross-site cookie options without importing its DB or
 // Google integration. This only clears this website's cookie, not Google login.
 const GOOGLE_SESSION_COOKIE = "eventflow_google_session";
+const LOCAL_SESSION_COOKIE = "eventflow_local_session";
 const GOOGLE_SECURE_OPTIONS: CookieOptions = {
   httpOnly: true,
   secure: true,
@@ -293,6 +294,7 @@ export function registerParticipantAuthRoutes(app: Express): void {
       }
       // Repeated start returns the same identity/deadline without reissuing JWT.
       res.clearCookie(GOOGLE_SESSION_COOKIE, GOOGLE_SECURE_OPTIONS);
+      res.clearCookie(LOCAL_SESSION_COOKIE, GOOGLE_SECURE_OPTIONS);
       res.clearCookie(COOKIE_NAME, getSessionCookieOptions(req));
       clearGoogleTransactionCookie(res);
       res.json(status(session));

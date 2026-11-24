@@ -918,6 +918,7 @@ describe("participant cookies, switching identities and manual logout", () => {
     ]) {
       expect(res.cleared).toEqual([
         { name: "eventflow_google_session", options: GOOGLE_FLAGS },
+        { name: "eventflow_local_session", options: GOOGLE_FLAGS },
         { name: COOKIE_NAME, options: PUBLIC_FLAGS },
         { name: GOOGLE_TRANSACTION, options: TRANSACTION_FLAGS },
       ]);

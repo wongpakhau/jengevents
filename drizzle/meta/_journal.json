@@ -29,6 +29,13 @@
       "when": 1795249182270,
       "tag": "0003_pending_owner_bootstrap",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1795523077860,
+      "tag": "0004_local_accounts",
+      "breakpoints": true
     }
   ]
 }

@@ -22,7 +22,7 @@ export async function accessDirectory(
 ): Promise<AccessDirectory> {
   const p = getPool();
   const [users] = await p.query<RowDataPacket[]>(
-    "SELECT u.id,u.name,u.email,s.active AS system_active FROM users u LEFT JOIN ef_system_admins s ON s.user_id = u.id WHERE u.loginMethod = 'google_direct' ORDER BY u.lastSignedIn DESC"
+    "SELECT u.id,u.name,u.email,u.loginMethod AS login_method,s.active AS system_active FROM users u LEFT JOIN ef_system_admins s ON s.user_id = u.id WHERE u.loginMethod IN ('google_direct','local_password') ORDER BY u.lastSignedIn DESC"
   );
   const [members] = await p.query<RowDataPacket[]>(
     "SELECT m.id,m.event_id,m.user_id,m.role,m.merchant_id,m.active FROM ef_members m JOIN ef_events e ON e.id = m.event_id AND e.owner_user_id IS NOT NULL JOIN ef_organizations o ON o.id = e.tenant_id AND o.owner_user_id IS NOT NULL"
@@ -36,15 +36,18 @@ export async function accessDirectory(
       id: u.id,
       name: u.name,
       email: u.email,
-      systemRole: isSystemOwner({
-        email: u.email,
-        authProvider: "google",
-        emailVerified: true,
-      })
-        ? "owner"
-        : u.system_active
-          ? "admin"
-          : "user",
+      provider: u.login_method === "local_password" ? "local" : "google",
+      systemRole:
+        u.login_method === "google_direct" &&
+        isSystemOwner({
+          email: u.email,
+          authProvider: "google",
+          emailVerified: true,
+        })
+          ? "owner"
+          : u.system_active && u.login_method === "google_direct"
+            ? "admin"
+            : "user",
       assignments: members
         .filter(m => m.user_id === u.id)
         .map(m => ({

@@ -11,6 +11,7 @@ import {
   clearParticipantSession,
 } from "./_core/participantAuth";
 import { assertSameOriginJson } from "./eventflow/security";
+import { clearLocalSession, hasLocalCookie } from "./_core/localAuth";
 
 function assertLogoutRequest(req: Request): void {
   const origin = req.get("origin");
@@ -61,6 +62,7 @@ export const appRouter = router({
       clearGoogleTransactionCookie(ctx.res);
       if (hasParticipantCookie(ctx.req))
         clearParticipantSession(ctx.req, ctx.res);
+      if (hasLocalCookie(ctx.req)) clearLocalSession(ctx.req, ctx.res);
       return {
         success: true,
       } as const;

@@ -55,3 +55,28 @@ Guest URLs `/guest#invite=<token>`; receipt URLs `/guest#claim=<token>`; staff i
 正向春茗及新建完整活動的新消費規則：已確認消費跨筆累積，每滿 HK$500（50,000 分）得一次一般抽獎機會，餘額保留；歷史憑證仍依簽發時的 ruleVersion/threshold/accumulation 計算。單次 HK$1,000 現場利是抽獎仍是已簽到嘉賓每人等權一次。
 
 `/demo/admin`、`/demo/merchant`、`/demo/guest` 為隔離的前端角色示範，三個登入頁測試按鈕不會建立正式帳戶、正式 Cookie、授權或 API 登入。只使用瀏覽器示範命名空間，不寫入正式活動或抽獎資料；跨裝置測試須使用真正授權帳戶及正式流程。
+
+## 帳號密碼登入、會員碼與預購單（Phase A）
+
+### 帳號密碼登入（與 Google 並存）
+- `POST /api/auth/local/login` `{username, password, returnTo?}`：錯誤帳密回 401 `INVALID_CREDENTIALS`。staff 帳戶設定 HttpOnly cookie `eventflow_local_session`，回 `{kind:"staff", path}`；member 帳戶回 `{kind:"member", path:"/guest#invite=<token>"}`（30 天嘉賓邀請）。
+- `POST /api/auth/local/logout`：清除 local cookie。其他登出路徑亦會清除該 cookie。
+- 帳號只能由系統 owner/admin 建立：
+  - `GET /api/eventflow/system/local-accounts` → `{accounts}`
+  - `POST /api/eventflow/system/local-accounts`（需 `Idempotency-Key`）`{username,password,displayName?,kind:"staff"|"member",eventId?,role?,merchantId?,guestId?|memberCode?}` → 201 `{account, accounts}`
+  - `PATCH /api/eventflow/system/local-accounts/:id` `{password?,active?,displayName?}`
+- 帳號只可得到 ef_members 授予的活動角色，不會成為系統 owner/admin（只有 Google 驗證者可以）。
+
+### 會員碼 Membership code
+- 嘉賓 `memberCode`（預設 `M<票號>`，活動內唯一；管理員可在嘉賓管理或 CSV `member_code` 欄修改）。
+- 用戶 QR 內容：`<origin>/merchant#member=<CODE>`。
+- `POST /events/:eventId/purchase-code/resolve` 接受 `{code}` 或 `{memberCode}`（商家須帶 `merchantId`）→ `{guest:{id,name,ticket,memberCode}, expiresAt, method, preorders}`；preorders 為該商家名下未取貨預購單。
+- `POST /events/:eventId/receipts` 接受 `memberCode`，建立待買家確認的消費單；買家端 3 秒輪詢並以 pop up 確認／拒絕。
+
+### 預購單
+- `POST /events/:eventId/preorders` `{merchantId, guestId|memberCode, item, quantity, amountCents?, note?}`
+- `POST /events/:eventId/preorders/:id/collect`、`/cancel`（owner/admin/pm/merchant，商家限本商戶）
+- `GET /guest` 回 `preorders`（買家自己的預購單）。
+
+### 商城 www.yeeahk.com 預留接口（未實作）
+- `GET /api/integrations/yeeahk/health`、`POST /members/sync`、`/preorders/sync`、`/preorders/status`；以 `X-Integration-Key` 對 `YEEAHK_INTEGRATION_KEY`。未設定回 503 `NOT_CONFIGURED`；已設定但未實作回 501 `NOT_IMPLEMENTED`（附 contract）。

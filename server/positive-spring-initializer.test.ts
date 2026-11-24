@@ -210,6 +210,7 @@ describe("正向春茗 new database initializer (no database)", () => {
       tables: [],
       merchants: [],
       receipts: [],
+      preorders: [],
       payments: [],
       prizes: [],
       draws: [],

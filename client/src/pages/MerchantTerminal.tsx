@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   CircleAlert,
   LoaderCircle,
+  Package,
   ReceiptText,
   RefreshCw,
   ScanLine,
@@ -16,10 +17,17 @@ import { stateScopeKey } from "@/lib/workspace-scope";
 import { roleHome, roleHomeLabel } from "@/lib/role-home";
 import QRScanner from "@/components/event/QRScanner";
 import QRCode from "@/components/event/QRCode";
+import { PreorderList } from "@/components/event/ConsumerTickets";
 import { purchaseCodeFromQr } from "@/lib/purchase-qr";
-import type { ReceiptIssued } from "@shared/eventflow";
+import { memberCodeFromQr } from "@/lib/member-qr";
+import type {
+  Preorder,
+  PurchaseCodeResolved,
+  ReceiptIssued,
+} from "@shared/eventflow";
 import "@/styles/event-mobile.css";
 import "@/styles/role-entry.css";
+import "@/styles/member-commerce.css";
 
 const amountPattern = /^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/;
 function toCents(value: string) {
@@ -53,7 +61,7 @@ function autoReference(now = new Date()) {
   return `AUTO-${stamp}-${suffix}`;
 }
 function MerchantSteps({ step }: { step: 1 | 2 | 3 }) {
-  const labels = ["掃用戶 QR", "輸入金額", "等用戶確認"];
+  const labels = ["掃會員碼", "輸入金額", "等買家確認"];
   return (
     <ol className="merchant-steps" aria-label="開單步驟">
       {labels.map((label, index) => {
@@ -73,10 +81,7 @@ function MerchantSteps({ step }: { step: 1 | 2 | 3 }) {
     </ol>
   );
 }
-interface PurchaseGuest {
-  guest: { id: string; name: string; ticket: string };
-  expiresAt: string;
-}
+type PurchaseGuest = PurchaseCodeResolved;
 
 export default function MerchantTerminal() {
   const { state, eventId } = useWorkspace();
@@ -104,6 +109,11 @@ function MerchantTerminalForScope() {
   const [purchaseGuest, setPurchaseGuest] = useState<PurchaseGuest | null>(
     null
   );
+  const [preorderBusy, setPreorderBusy] = useState<string | null>(null);
+  const [preorderNotice, setPreorderNotice] = useState("");
+  const [newPreorderItem, setNewPreorderItem] = useState("");
+  const [newPreorderQty, setNewPreorderQty] = useState("1");
+  const [showPreorderForm, setShowPreorderForm] = useState(false);
   const [legacy, setLegacy] = useState(false);
   const [clock, setClock] = useState(Date.now());
   const receiptKeyRef = useRef(idempotencyKey());
@@ -143,16 +153,22 @@ function MerchantTerminalForScope() {
   }, [merchantId, merchants]);
 
   const resolveCode = async (raw: string) => {
-    const code = purchaseCodeFromQr(raw, window.location.origin);
-    if (!code)
+    // Membership QR (or a typed member code) is the primary path; the
+    // one-time purchase QR remains accepted as a fallback.
+    const oneTime = purchaseCodeFromQr(raw, window.location.origin);
+    const member = oneTime
+      ? null
+      : memberCodeFromQr(raw, window.location.origin);
+    if (!oneTime && !member)
       throw new Error(
-        "請掃描用戶『消費領抽獎券』頁面的完整 QR；邀請或登入 QR 不適用。"
+        "請掃描用戶嘉賓頁的會員 QR，或直接輸入會員碼；邀請或登入 QR 不適用。"
       );
     if (!state || !selectedMerchant?.active || busyRef.current)
       throw new Error("請先選擇授權且啟用中的商戶。");
     busyRef.current = true;
     setScanBusy(true);
     setFormError(null);
+    setPreorderNotice("");
     setPurchaseGuest(null);
     setPurchaseCode("");
     const requestedMerchant = merchantId;
@@ -160,12 +176,14 @@ function MerchantTerminalForScope() {
       const result = await api<PurchaseGuest>(
         `/events/${state.event.id}/purchase-code/resolve`,
         "POST",
-        { code, merchantId },
+        oneTime
+          ? { code: oneTime, merchantId }
+          : { memberCode: member, merchantId },
         idempotencyKey()
       );
       if (!active.current || selectionRef.current !== requestedMerchant) return;
       setPurchaseGuest(result);
-      setPurchaseCode(code);
+      setPurchaseCode(oneTime ?? "");
       setScanning(false);
       window.history.replaceState(
         null,
@@ -180,21 +198,130 @@ function MerchantTerminalForScope() {
 
   const initialCodeAttempt = useRef(false);
   useEffect(() => {
-    const pending = new URLSearchParams(window.location.hash.slice(1)).get(
-      "purchase"
-    );
-    if (!pending || !selectedMerchant?.active || initialCodeAttempt.current)
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    const pending = hash.get("purchase");
+    const member = hash.get("member");
+    if (
+      (!pending && !member) ||
+      !selectedMerchant?.active ||
+      initialCodeAttempt.current
+    )
       return;
     initialCodeAttempt.current = true;
-    void resolveCode(
-      `${window.location.origin}/merchant#purchase=${encodeURIComponent(pending)}`
-    ).catch(reason => {
+    const target = pending
+      ? `${window.location.origin}/merchant#purchase=${encodeURIComponent(pending)}`
+      : `${window.location.origin}/merchant#member=${encodeURIComponent(member ?? "")}`;
+    void resolveCode(target).catch(reason => {
       if (active.current) setFormError(errorMessage(reason));
     });
   }, [selectedMerchant?.id, selectedMerchant?.active]);
 
   const codeExpired =
     !purchaseGuest || Date.parse(purchaseGuest.expiresAt) <= clock;
+  const buyerMemberCode = purchaseGuest?.guest.memberCode ?? "";
+  const livePreorders: Preorder[] = purchaseGuest
+    ? (state?.preorders ?? []).filter(
+        item =>
+          item.guestId === purchaseGuest.guest.id &&
+          item.merchantId === selectedMerchant?.id
+      )
+    : [];
+  // Prefer the workspace copy (refreshed every few seconds) over the snapshot
+  // returned at scan time, so a collection made on another device shows up.
+  const buyerPreorders: Preorder[] = purchaseGuest
+    ? livePreorders.length || !purchaseGuest.preorders?.length
+      ? livePreorders
+      : purchaseGuest.preorders
+    : [];
+  const pendingBuyerPreorders = buyerPreorders.filter(
+    item => item.status === "pending"
+  );
+
+  const transitionPreorder = async (
+    item: Preorder,
+    action: "collect" | "cancel"
+  ) => {
+    if (!state || preorderBusy) return;
+    setPreorderBusy(item.id);
+    setPreorderNotice("");
+    try {
+      const result = await api<{ preorder: Preorder }>(
+        `/events/${state.event.id}/preorders/${encodeURIComponent(item.id)}/${action}`,
+        "POST",
+        {},
+        idempotencyKey()
+      );
+      if (!active.current) return;
+      setPurchaseGuest(current =>
+        current
+          ? {
+              ...current,
+              preorders: (current.preorders ?? []).map(entry =>
+                entry.id === result.preorder.id ? result.preorder : entry
+              ),
+            }
+          : current
+      );
+      setPreorderNotice(
+        action === "collect"
+          ? `已標記「${item.item}」為已取貨。`
+          : `已取消「${item.item}」預購。`
+      );
+      void reload();
+    } catch (reason) {
+      if (active.current) setFormError(errorMessage(reason));
+    } finally {
+      if (active.current) setPreorderBusy(null);
+    }
+  };
+
+  const addPreorder = async () => {
+    if (!state || !purchaseGuest || !selectedMerchant || preorderBusy) return;
+    const item = newPreorderItem.trim();
+    const quantity = Number(newPreorderQty);
+    if (!item) {
+      setFormError("請輸入預購項目名稱。");
+      return;
+    }
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 999) {
+      setFormError("數量須為 1 至 999。");
+      return;
+    }
+    setPreorderBusy("new");
+    setFormError(null);
+    setPreorderNotice("");
+    try {
+      const result = await api<{ preorder: Preorder }>(
+        `/events/${state.event.id}/preorders`,
+        "POST",
+        {
+          merchantId: selectedMerchant.id,
+          guestId: purchaseGuest.guest.id,
+          item,
+          quantity,
+        },
+        idempotencyKey()
+      );
+      if (!active.current) return;
+      setPurchaseGuest(current =>
+        current
+          ? {
+              ...current,
+              preorders: [...(current.preorders ?? []), result.preorder],
+            }
+          : current
+      );
+      setNewPreorderItem("");
+      setNewPreorderQty("1");
+      setShowPreorderForm(false);
+      setPreorderNotice(`已為 ${purchaseGuest.guest.name} 建立預購單。`);
+      void reload();
+    } catch (reason) {
+      if (active.current) setFormError(errorMessage(reason));
+    } finally {
+      if (active.current) setPreorderBusy(null);
+    }
+  };
   const createReceipt = async (submitEvent: React.FormEvent) => {
     submitEvent.preventDefault();
     if (busyRef.current) return;
@@ -202,8 +329,8 @@ function MerchantTerminalForScope() {
       setFormError("請選擇授權商戶並輸入正確金額。");
       return;
     }
-    if (!legacy && (!purchaseCode || codeExpired)) {
-      setFormError("請先掃描用戶有效的消費 QR。");
+    if (!legacy && (!purchaseGuest || codeExpired)) {
+      setFormError("請先掃描買家的會員 QR 或輸入會員碼。");
       return;
     }
     // A blank reference gets a device-generated one, kept in the form so a
@@ -217,7 +344,11 @@ function MerchantTerminalForScope() {
       merchantId: selectedMerchant.id,
       amountCents,
       reference: finalReference,
-      ...(!legacy ? { purchaseCode } : {}),
+      ...(!legacy
+        ? purchaseCode
+          ? { purchaseCode }
+          : { memberCode: buyerMemberCode }
+        : {}),
     };
     const signature = JSON.stringify(payload);
     if (
@@ -252,6 +383,7 @@ function MerchantTerminalForScope() {
     setReference("");
     setIssued(null);
     setFormError(null);
+    setPreorderNotice("");
     setPurchaseCode("");
     setPurchaseGuest(null);
     setScanning(true);
@@ -320,7 +452,7 @@ function MerchantTerminalForScope() {
           授權商戶終端
         </span>
         <h1>{event?.brand.name || "活動"}</h1>
-        <p>掃描用戶 QR → 記錄消費金額 → 等待用戶確認。</p>
+        <p>掃描買家會員 QR → 輸入消費金額 → 買家手機彈出確認。</p>
         <p className="event-mobile-help" role="status">
           營業額約每 5 秒更新，只計有效憑證，新掃碼交易須本人確認；
           {lastUpdatedAt
@@ -399,19 +531,19 @@ function MerchantTerminalForScope() {
           )}
           {!legacy && (
             <section className="consumption-scan">
-              <h3>1. 掃描用戶 QR</h3>
+              <h3>1. 掃描買家會員碼</h3>
               <p className="event-mobile-help">
-                請用戶打開「消費領抽獎券」，出示個人的消費 QR
-                code；不要掃描其登入邀請。
+                請買家打開嘉賓頁出示「我的會員 QR」；也可直接輸入會員碼（例如
+                BP54）。不要掃描其登入邀請。
               </p>
               {scanning && !purchaseGuest && selectedMerchant?.active && (
                 <QRScanner
                   embedded
                   disabled={scanBusy || submitting}
-                  manualLabel="貼上用戶消費 QR 的完整連結"
-                  manualPlaceholder="https://…/merchant#purchase=…"
-                  title="掃描用戶消費 QR"
-                  description="只接受同一活動的消費識別碼；也可貼上完整 QR 連結。"
+                  manualLabel="輸入會員碼或貼上會員 QR 連結"
+                  manualPlaceholder="例如 BP54 或 https://…/merchant#member=…"
+                  title="掃描買家會員 QR"
+                  description="接受同一活動的會員碼或一次性消費碼；也可貼上完整 QR 連結。"
                   onDetect={resolveCode}
                 />
               )}
@@ -427,12 +559,107 @@ function MerchantTerminalForScope() {
                     <CheckCircle2 size={17} />
                     {purchaseGuest.guest.name}
                   </strong>
-                  <p>票號：{purchaseGuest.guest.ticket}</p>
+                  <p>
+                    會員碼：{purchaseGuest.guest.memberCode} · 票號：
+                    {purchaseGuest.guest.ticket}
+                  </p>
                   <p className="event-mobile-help">
                     {codeExpired
-                      ? "此 QR 已過期，請用戶更新並重新掃描。"
-                      : `已核對；消費碼有效至 ${expiryLabel(purchaseGuest.expiresAt)}`}
+                      ? "此次核對已逾時，請重新掃描會員 QR。"
+                      : `已核對；請於 ${expiryLabel(purchaseGuest.expiresAt)} 前完成開單`}
                   </p>
+                  <div className="event-mobile-card__heading">
+                    <h3>
+                      <Package size={17} aria-hidden="true" /> 買家預購單
+                    </h3>
+                    <span className="event-mobile-pill">
+                      {pendingBuyerPreorders.length} 筆未取貨
+                    </span>
+                  </div>
+                  {buyerPreorders.length ? (
+                    <PreorderList
+                      items={buyerPreorders}
+                      busyId={preorderBusy}
+                      onCollect={item =>
+                        void transitionPreorder(item, "collect")
+                      }
+                      onCancel={item => void transitionPreorder(item, "cancel")}
+                    />
+                  ) : (
+                    <p className="event-mobile-help">
+                      此買家在你的商戶沒有未取貨的預購單。
+                    </p>
+                  )}
+                  {preorderNotice && (
+                    <p
+                      className="event-mobile-alert event-mobile-alert--success"
+                      role="status"
+                    >
+                      <CheckCircle2 size={16} /> {preorderNotice}
+                    </p>
+                  )}
+                  {showPreorderForm ? (
+                    <div className="preorder-new">
+                      <label
+                        className="event-mobile-label"
+                        htmlFor="preorder-item"
+                      >
+                        預購項目
+                      </label>
+                      <input
+                        id="preorder-item"
+                        value={newPreorderItem}
+                        maxLength={200}
+                        placeholder="例如 禮盒 A"
+                        onChange={change =>
+                          setNewPreorderItem(change.target.value)
+                        }
+                        disabled={preorderBusy !== null}
+                      />
+                      <label
+                        className="event-mobile-label"
+                        htmlFor="preorder-qty"
+                      >
+                        數量
+                      </label>
+                      <input
+                        id="preorder-qty"
+                        inputMode="numeric"
+                        value={newPreorderQty}
+                        onChange={change =>
+                          setNewPreorderQty(change.target.value)
+                        }
+                        disabled={preorderBusy !== null}
+                      />
+                      <div className="mvp-inline-actions">
+                        <button
+                          type="button"
+                          className="button button-dark"
+                          disabled={preorderBusy !== null}
+                          onClick={() => void addPreorder()}
+                        >
+                          {preorderBusy === "new" ? "建立中…" : "建立預購單"}
+                        </button>
+                        <button
+                          type="button"
+                          className="button button-white"
+                          disabled={preorderBusy !== null}
+                          onClick={() => setShowPreorderForm(false)}
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="event-mobile-text-button"
+                      disabled={preorderBusy !== null}
+                      onClick={() => setShowPreorderForm(true)}
+                    >
+                      <Package size={16} /> 為此買家新增預購單
+                    </button>
+                  )}
                 </div>
               )}
               <button
@@ -454,10 +681,10 @@ function MerchantTerminalForScope() {
               >
                 <ScanLine size={18} />
                 {purchaseGuest
-                  ? "重新 SCAN 另一位用戶"
+                  ? "重新 SCAN 另一位買家"
                   : scanning
                     ? "收起掃碼器"
-                    : "SCAN 用戶 QR code"}
+                    : "SCAN 買家會員 QR"}
               </button>
             </section>
           )}
@@ -534,7 +761,7 @@ function MerchantTerminalForScope() {
               ? "正在建立憑證…"
               : legacy
                 ? "建立憑證 QR，交由用戶確認"
-                : "提交消費，等待用戶確認"}
+                : "提交消費，買家手機彈出確認"}
           </button>
           <button
             type="button"
@@ -548,7 +775,7 @@ function MerchantTerminalForScope() {
               setFormError(null);
             }}
           >
-            {legacy ? "返回：商家掃用戶 QR" : "使用原有方式：用戶掃憑證 QR"}
+            {legacy ? "返回：商家掃買家會員碼" : "使用原有方式：用戶掃憑證 QR"}
           </button>
         </form>
       ) : (
@@ -586,7 +813,7 @@ function MerchantTerminalForScope() {
               <p>
                 {issuedUrl
                   ? "請用戶掃描憑證 QR，核對商家及金額後確認。"
-                  : "請用戶在自己的『消費領抽獎券』頁面確認商家及金額。"}
+                  : "買家手機已彈出確認視窗，請買家核對商家及金額後按「確認」。"}
                 本頁約每 5 秒更新。未確認前不計入有效營業額或抽獎機會。
               </p>
             )}

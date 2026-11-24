@@ -17,7 +17,9 @@ import type { EventInfo, EventProgram } from "@shared/eventflow";
 import { GOOGLE_PRODUCTION_ORIGIN } from "@shared/google-login";
 import "@/styles/access-management.css";
 import "@/styles/role-entry.css";
+import "@/styles/member-commerce.css";
 import ParticipantLoginButton from "./ParticipantLoginButton";
+import LocalLoginForm from "./LocalLoginForm";
 
 export function WorkspaceGate({ children }: { children: ReactNode }) {
   const { session, state, loading, error, reload } = useWorkspace();
@@ -169,6 +171,12 @@ function RoleEntry({ error }: { error: string | null }) {
           )}
         </article>
       </div>
+      <section className="role-local-login" aria-label="帳號密碼登入">
+        <LocalLoginForm
+          title="帳號密碼登入（商家／工作人員／會員）"
+          hint="帳號由大會管理員在「帳戶授權」頁建立。商家與工作人員登入後直達自己的工作台；會員登入後直達自己的嘉賓頁。"
+        />
+      </section>
       <section className="role-demo-entry" aria-label="角色測試入口">
         <strong>試用示範（不登入正式帳戶）</strong>
         <div className="mvp-inline-actions">

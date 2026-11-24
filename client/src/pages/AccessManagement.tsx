@@ -7,7 +7,9 @@ import {
   GoogleLoginButton,
   WorkspaceAccountActions,
 } from "@/components/event/WorkspaceGate";
+import LocalAccountsPanel from "@/components/event/LocalAccountsPanel";
 import "@/styles/access-management.css";
+import "@/styles/member-commerce.css";
 
 const roleNames: Record<Role, string> = {
   owner: "活動擁有者",
@@ -152,6 +154,7 @@ export function AccessManagement() {
         user.email,
         systemRoleNames[user.systemRole],
         isPending(user) ? "Google 登入待授權" : "",
+        user.provider === "local" ? "帳號密碼" : "Google",
         ...user.assignments.map(assignment => roleNames[assignment.role]),
       ]
         .filter(Boolean)
@@ -359,6 +362,17 @@ export function AccessManagement() {
                 </>
               )}
             </section>
+            {directory && (
+              <LocalAccountsPanel
+                events={directory.events}
+                disabled={disabled}
+                onChanged={() => {
+                  void reloadDirectory().catch(reason =>
+                    setError(messageFrom(reason))
+                  );
+                }}
+              />
+            )}
           </>
         )}
       </div>
@@ -430,7 +444,11 @@ function UserAccessCard({
       <div className="access-user-heading">
         <div>
           <h3>{user.name || user.email || "未提供姓名的帳戶"}</h3>
-          <p>{user.email || "此帳戶未提供電郵"}</p>
+          <p>
+            {user.provider === "local"
+              ? "帳號密碼登入帳戶（由大會建立）"
+              : user.email || "此帳戶未提供電郵"}
+          </p>
         </div>
         <div className="access-badges">
           <span className="access-badge">

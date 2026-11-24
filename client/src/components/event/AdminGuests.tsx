@@ -32,6 +32,7 @@ type GuestDraft = {
   name: string;
   email: string;
   phone: string;
+  memberCode: string;
   group: string;
   note: string;
   classType: string;
@@ -54,6 +55,7 @@ const emptyDraft: GuestDraft = {
   name: "",
   email: "",
   phone: "",
+  memberCode: "",
   group: "",
   note: "",
   classType: "",
@@ -91,23 +93,31 @@ export default function AdminGuests() {
   const canManage = hasRole(state.role, guestManagerRoles);
   const attendanceOnly = state.event.mode === "attendance";
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const guests = sortGuests(state.guests.filter(guest => {
-    if (attendanceOnly && isExcludedFromEvent(state.event, guest) !== showExcluded) return false;
-    if (!normalizedQuery) return true;
-    return [
-      guest.name,
-      guest.email,
-      guest.phone,
-      guest.ticket,
-      guest.group,
-      guest.note,
-      classLabel(guest),
-      guest.classNumber || "",
-      guest.chapter || "",
-      guest.reportedChapter || "",
-      guest.invitedBy || "",
-    ].some(value => value.toLocaleLowerCase().includes(normalizedQuery));
-  }), sortBy);
+  const guests = sortGuests(
+    state.guests.filter(guest => {
+      if (
+        attendanceOnly &&
+        isExcludedFromEvent(state.event, guest) !== showExcluded
+      )
+        return false;
+      if (!normalizedQuery) return true;
+      return [
+        guest.name,
+        guest.email,
+        guest.phone,
+        guest.ticket,
+        guest.memberCode || "",
+        guest.group,
+        guest.note,
+        classLabel(guest),
+        guest.classNumber || "",
+        guest.chapter || "",
+        guest.reportedChapter || "",
+        guest.invitedBy || "",
+      ].some(value => value.toLocaleLowerCase().includes(normalizedQuery));
+    }),
+    sortBy
+  );
 
   const submitGuest = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -117,6 +127,12 @@ export default function AdminGuests() {
       name,
       email: draft.email.trim() || undefined,
       phone: draft.phone.trim() || undefined,
+      // Edits send "" to reset to the ticket default; creation omits it.
+      ...(editing
+        ? { memberCode: draft.memberCode.trim().toUpperCase() }
+        : draft.memberCode.trim()
+          ? { memberCode: draft.memberCode.trim().toUpperCase() }
+          : {}),
       group: draft.group.trim(),
       note: draft.note.trim(),
       classType: draft.classType,
@@ -126,7 +142,9 @@ export default function AdminGuests() {
       memberKind: draft.memberKind,
       rosterKey: draft.rosterKey.trim(),
       rosterClaimBlocked: draft.rosterClaimBlocked,
-      ...(attendanceOnly ? { excludedFromEvent: Boolean(draft.excludedFromEvent) } : {}),
+      ...(attendanceOnly
+        ? { excludedFromEvent: Boolean(draft.excludedFromEvent) }
+        : {}),
     };
     if (editing) {
       const result = await mutate<Guest>(
@@ -291,10 +309,22 @@ export default function AdminGuests() {
             <strong>{eventGuests(state.event, state.guests).length}</strong>
             <span>位參會嘉賓</span>
           </div>
-          {attendanceOnly && <label className="mvp-toggle-label">
-            <input type="checkbox" checked={showExcluded} onChange={event => setShowExcluded(event.target.checked)} />
-            只看保留／不參會紀錄（{state.guests.filter(guest => isExcludedFromEvent(state.event, guest)).length}）
-          </label>}
+          {attendanceOnly && (
+            <label className="mvp-toggle-label">
+              <input
+                type="checkbox"
+                checked={showExcluded}
+                onChange={event => setShowExcluded(event.target.checked)}
+              />
+              只看保留／不參會紀錄（
+              {
+                state.guests.filter(guest =>
+                  isExcludedFromEvent(state.event, guest)
+                ).length
+              }
+              ）
+            </label>
+          )}
           <label className="mvp-search">
             <Search size={15} />
             <input
@@ -305,7 +335,12 @@ export default function AdminGuests() {
           </label>
           <label>
             排序
-            <select value={sortBy} onChange={event => setSortBy(event.target.value as GuestSortField)}>
+            <select
+              value={sortBy}
+              onChange={event =>
+                setSortBy(event.target.value as GuestSortField)
+              }
+            >
               <option value="name">姓名</option>
               <option value="phone">電話</option>
             </select>
@@ -348,11 +383,14 @@ export default function AdminGuests() {
                       <small>嘉賓自報分會：{guest.reportedChapter}</small>
                     )}
                     {guest.rosterClaimBlocked && <small>需人工核對</small>}
-                    {isExcludedFromEvent(state.event, guest) && <small>保留紀錄／不參會（不計人數）</small>}
+                    {isExcludedFromEvent(state.event, guest) && (
+                      <small>保留紀錄／不參會（不計人數）</small>
+                    )}
                   </div>
                 </div>
                 <div>
                   <strong>{guest.ticket}</strong>
+                  <small>會員碼 {guest.memberCode || `M${guest.ticket}`}</small>
                   <small>
                     {table && guest.seat
                       ? `${table.number} 號枱 · 座位 ${guest.seat}`
@@ -362,7 +400,11 @@ export default function AdminGuests() {
                 <span
                   className={`mvp-status ${guest.checkedInAt ? "success" : "quiet"}`}
                 >
-                  {isExcludedFromEvent(state.event, guest) ? "不參會（歷史保留）" : guest.checkedInAt ? "已到場" : "未簽到"}
+                  {isExcludedFromEvent(state.event, guest)
+                    ? "不參會（歷史保留）"
+                    : guest.checkedInAt
+                      ? "已到場"
+                      : "未簽到"}
                 </span>
                 {attendanceOnly ? (
                   <small className="mvp-cell-note">{guest.note || "—"}</small>
@@ -383,6 +425,7 @@ export default function AdminGuests() {
                             name: guest.name,
                             email: guest.email,
                             phone: guest.phone,
+                            memberCode: guest.memberCode || "",
                             group: guest.group,
                             note: guest.note,
                             classType: guest.classType || "",
@@ -404,7 +447,10 @@ export default function AdminGuests() {
                       </button>
                       <button
                         className="mvp-text-button"
-                        disabled={isExcludedFromEvent(state.event, guest) || isPending(`guest-rotate-${guest.id}`)}
+                        disabled={
+                          isExcludedFromEvent(state.event, guest) ||
+                          isPending(`guest-rotate-${guest.id}`)
+                        }
                         onClick={() => void rotateInvitation(guest)}
                       >
                         <RefreshCw size={14} />
@@ -574,7 +620,16 @@ export default function AdminGuests() {
                     需人工核對（禁止自助認領）
                   </label>
                   <label className="mvp-toggle-label">
-                    <input type="checkbox" checked={Boolean(draft.excludedFromEvent)} onChange={event => setDraft(current => ({ ...current, excludedFromEvent: event.target.checked }))} />
+                    <input
+                      type="checkbox"
+                      checked={Boolean(draft.excludedFromEvent)}
+                      onChange={event =>
+                        setDraft(current => ({
+                          ...current,
+                          excludedFromEvent: event.target.checked,
+                        }))
+                      }
+                    />
                     保留紀錄／不參會（不計人數、不可簽到或排位；解除時須通過聯絡資料去重）
                   </label>
                 </>
@@ -617,6 +672,23 @@ export default function AdminGuests() {
                     }))
                   }
                   placeholder="聯絡電話"
+                />
+              </label>
+              <label>
+                會員碼（選填；商家掃碼用，留空則用票號）
+                <input
+                  value={draft.memberCode}
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  maxLength={20}
+                  onChange={event =>
+                    setDraft(current => ({
+                      ...current,
+                      memberCode: event.target.value,
+                    }))
+                  }
+                  placeholder="例如 BP54"
                 />
               </label>
               <label>
@@ -826,6 +898,7 @@ export function parseGuestCsv(text: string): GuestDraft[] {
   const nameIndex = indexOf("name", "姓名", "嘉賓姓名");
   const emailIndex = indexOf("email", "電郵", "電郵地址");
   const phoneIndex = indexOf("phone", "電話", "聯絡電話");
+  const memberCodeIndex = indexOf("member_code", "membercode", "會員碼");
   const groupIndex = indexOf("group", "分組", "嘉賓分組");
   const noteIndex = indexOf("note", "備註", "嘉賓備註");
   const classTypeIndex = indexOf(
@@ -849,7 +922,11 @@ export function parseGuestCsv(text: string): GuestDraft[] {
     "rosterclaimblocked",
     "人工核對"
   );
-  const excludedIndex = indexOf("excluded_from_event", "excludedfromevent", "保留不參會");
+  const excludedIndex = indexOf(
+    "excluded_from_event",
+    "excludedfromevent",
+    "保留不參會"
+  );
   if (nameIndex === -1) return [];
   return matrix
     .slice(1)
@@ -857,6 +934,10 @@ export function parseGuestCsv(text: string): GuestDraft[] {
       name: (row[nameIndex] ?? "").trim(),
       email: emailIndex === -1 ? "" : (row[emailIndex] ?? "").trim(),
       phone: phoneIndex === -1 ? "" : (row[phoneIndex] ?? "").trim(),
+      memberCode:
+        memberCodeIndex === -1
+          ? ""
+          : (row[memberCodeIndex] ?? "").trim().toUpperCase(),
       group: groupIndex === -1 ? "" : (row[groupIndex] ?? "").trim(),
       note: noteIndex === -1 ? "" : (row[noteIndex] ?? "").trim(),
       classType:
@@ -875,7 +956,12 @@ export function parseGuestCsv(text: string): GuestDraft[] {
         ["true", "1", "是"].includes(
           (row[blockedIndex] ?? "").trim().toLowerCase()
         ),
-      excludedFromEvent: excludedIndex === -1 ? undefined : ["true", "1", "是"].includes((row[excludedIndex] ?? "").trim().toLowerCase()),
+      excludedFromEvent:
+        excludedIndex === -1
+          ? undefined
+          : ["true", "1", "是"].includes(
+              (row[excludedIndex] ?? "").trim().toLowerCase()
+            ),
     }))
     .filter(row => row.name);
 }

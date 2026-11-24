@@ -1277,6 +1277,7 @@ describe("Google logout: POST same-origin JSON CSRF policy", () => {
     expect(res.statusCode).toBe(200);
     expect(res.cleared).toEqual([
       { name: GOOGLE_SESSION_COOKIE, options: SESSION_COOKIE_FLAGS },
+      { name: "eventflow_local_session", options: SESSION_COOKIE_FLAGS },
       { name: "webdev_app_session", options: SESSION_COOKIE_FLAGS },
       { name: TX_COOKIE, options: SESSION_COOKIE_FLAGS },
     ]);
@@ -1325,7 +1326,7 @@ describe("Google logout: POST same-origin JSON CSRF policy", () => {
       })
     );
     expect(res.body).toEqual({ ok: true });
-    expect(res.cleared).toHaveLength(3);
+    expect(res.cleared).toHaveLength(4);
   });
 
   it.each([

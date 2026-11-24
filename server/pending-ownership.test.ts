@@ -371,10 +371,21 @@ describe("pending ownership isolation", () => {
       ).status
     ).toBe(400);
     expect(
-      (await request("/system/pending-ownership/claim", "POST", { eventId: "other" })).status
+      (
+        await request("/system/pending-ownership/claim", "POST", {
+          eventId: "other",
+        })
+      ).status
     ).toBe(400);
     expect(
-      (await request("/system/pending-ownership/claim", "POST", {}, { origin: "" })).status
+      (
+        await request(
+          "/system/pending-ownership/claim",
+          "POST",
+          {},
+          { origin: "" }
+        )
+      ).status
     ).toBe(403);
     expect(
       (
@@ -387,12 +398,19 @@ describe("pending ownership isolation", () => {
       ).status
     ).toBe(403);
     expect(
-      (await request("/system/pending-ownership/claim", "POST", {}, {
-        origin: "https://evil.invalid",
-        "x-forwarded-host": "evil.invalid",
-        "x-forwarded-proto": "https",
-        "sec-fetch-site": "cross-site",
-      })).status
+      (
+        await request(
+          "/system/pending-ownership/claim",
+          "POST",
+          {},
+          {
+            origin: "https://evil.invalid",
+            "x-forwarded-host": "evil.invalid",
+            "x-forwarded-proto": "https",
+            "sec-fetch-site": "cross-site",
+          }
+        )
+      ).status
     ).toBe(403);
     expect(mock.data.org.owner_user_id).toBeNull();
     expect(mock.data.event.owner_user_id).toBeNull();
@@ -403,15 +421,18 @@ describe("pending ownership isolation", () => {
     "yeeayeeahk@gmail.com",
     "garyyang020730@gmail.com",
     "cj93128@gmail.com",
-  ])("allows verified system owner %s to claim the pending event", async email => {
-    mock.user = owner(4, email);
-    expect((await request("/system/pending-ownership")).status).toBe(200);
-    expect(
-      (await request("/system/pending-ownership/claim", "POST", {})).status
-    ).toBe(200);
-    expect(mock.data.org.owner_user_id).toBe(4);
-    expect(mock.data.event.owner_user_id).toBe(4);
-  });
+  ])(
+    "allows verified system owner %s to claim the pending event",
+    async email => {
+      mock.user = owner(4, email);
+      expect((await request("/system/pending-ownership")).status).toBe(200);
+      expect(
+        (await request("/system/pending-ownership/claim", "POST", {})).status
+      ).toBe(200);
+      expect(mock.data.org.owner_user_id).toBe(4);
+      expect(mock.data.event.owner_user_id).toBe(4);
+    }
+  );
   it("claims both rows for the session identity, audits once and safely repeats", async () => {
     expect(
       (await request("/system/pending-ownership/claim", "POST", {})).status

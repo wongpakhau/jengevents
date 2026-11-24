@@ -11,7 +11,9 @@ import type {
   Member,
   Merchant,
   Payment,
+  Preorder,
   Prize,
+  PurchaseCodeResolved,
   Receipt,
   Session,
   WorkspaceState,
@@ -19,6 +21,8 @@ import type {
 import {
   eventGuests,
   isExcludedFromEvent,
+  memberCodeOf,
+  normalizeMemberCode,
   POSITIVE_SPRING_DRAW_AT,
   POSITIVE_SPRING_EVENT_ID,
   POSITIVE_SPRING_RED_PACKET_KEY,
@@ -69,6 +73,7 @@ import { planSeatingImport, type SeatingImportRow } from "./seating-import";
 import { availableChances } from "./engine";
 import { SESSION_EVENTS_SQL } from "./session-query";
 import { systemRoleFor, accessDirectory } from "./system-access";
+import { registerLocalAccountRoutes } from "./local-accounts";
 import { isSystemOwner } from "./access-policy";
 import {
   emptyProgram,
@@ -386,6 +391,7 @@ function parseAggregate(raw: string): EventAggregate {
     parsed.prizes ??= [];
     parsed.draws ??= [];
     parsed.audit ??= [];
+    parsed.preorders ??= [];
     // JSON aggregates from earlier MVP versions did not have ceremony-only fields.
     parsed.event.mode ??= "full";
     parsed.event.program ??= emptyProgram();
@@ -399,6 +405,9 @@ function parseAggregate(raw: string): EventAggregate {
       guest.note ??= "";
       guest.classType ??= "";
       guest.classNumber ??= "";
+      // Membership codes default to the ticket number so every guest can be
+      // scanned by merchants without a data migration.
+      guest.memberCode ??= memberCodeOf(guest);
     }
     return parsed;
   } catch {
@@ -772,6 +781,35 @@ function assertActiveContactUnique(
     );
 }
 
+function assertMemberCodeUnique(
+  aggregate: EventAggregate,
+  memberCode: string,
+  exceptGuestId?: string
+): void {
+  if (
+    aggregate.guests.some(
+      guest => guest.id !== exceptGuestId && memberCodeOf(guest) === memberCode
+    )
+  )
+    throw new DomainError(
+      409,
+      "MEMBER_CODE_EXISTS",
+      "此會員碼已被同一活動的其他嘉賓使用"
+    );
+}
+
+function validateMemberCode(value: unknown): string | undefined {
+  if (value == null || value === "") return undefined;
+  const code = normalizeMemberCode(value);
+  if (!code)
+    throw new DomainError(
+      400,
+      "INVALID_MEMBER_CODE",
+      "會員碼只接受 2 至 20 位英文字母、數字或連字號"
+    );
+  return code;
+}
+
 function createGuest(
   aggregate: EventAggregate,
   input: {
@@ -782,6 +820,7 @@ function createGuest(
     note: string;
     classType?: Guest["classType"];
     classNumber?: string;
+    memberCode?: string;
   } & RosterFields,
   now: Date
 ): Guest {
@@ -796,11 +835,13 @@ function createGuest(
     );
   assertExclusionMode(aggregate.event, input);
   assertActiveContactUnique(aggregate, input);
+  if (input.memberCode) assertMemberCodeUnique(aggregate, input.memberCode);
   const tickets = new Set(aggregate.guests.map(guest => guest.ticket));
+  const memberCodes = new Set(aggregate.guests.map(memberCodeOf));
   let ticket = "";
   for (let attempt = 0; attempt < 20; attempt += 1) {
     ticket = String(randomInt(1_000_000)).padStart(6, "0");
-    if (!tickets.has(ticket)) break;
+    if (!tickets.has(ticket) && !memberCodes.has(`M${ticket}`)) break;
     ticket = "";
   }
   if (!ticket)
@@ -824,6 +865,7 @@ function createGuest(
     group: input.group,
     note: input.note,
     ticket,
+    memberCode: input.memberCode || `M${ticket}`,
     checkedInAt: null,
     tableId: null,
     seat: null,
@@ -842,14 +884,17 @@ function validateGuestInput(value: unknown): {
   note: string;
   classType?: Guest["classType"];
   classNumber?: string;
+  memberCode?: string;
 } & RosterFields {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new DomainError(400, "VALIDATION_ERROR", "嘉賓資料格式不正確");
   const item = value as Record<string, unknown>;
   const classes = validateClass(item.classType, item.classNumber, false);
+  const memberCode = validateMemberCode(item.memberCode);
   return {
     ...validateRosterFields(item),
     ...classes,
+    ...(memberCode ? { memberCode } : {}),
     name: text(item.name, "嘉賓姓名", { max: 120 })!,
     email: optionalContact(item.email, "電郵"),
     phone: optionalContact(item.phone, "電話"),
@@ -1037,6 +1082,7 @@ function stateFor(
       draws: attendanceOnly ? [] : aggregate.draws.map(drawDto),
       members: access.role === "project_manager" ? [] : members,
       audit: aggregate.audit,
+      preorders: attendanceOnly ? [] : (aggregate.preorders ?? []),
     };
   }
   if (access.role === "checkin" || access.role === "guest_manager") {
@@ -1087,6 +1133,9 @@ function stateFor(
     draws: [],
     members: [],
     audit: [],
+    preorders: (aggregate.preorders ?? []).filter(
+      item => item.merchantId === access.merchantId
+    ),
   };
 }
 
@@ -1231,6 +1280,91 @@ async function resolvePurchaseGuest(
     guest: boundGuest(aggregate, payload.guestId),
     expiresAt: payload.expiresAt,
   };
+}
+
+/** How long a merchant may keep a scanned membership code on screen. */
+const MEMBER_CODE_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * Resolve a membership code (printed on the guest's QR) to a participating
+ * guest of this event. Unlike one-time purchase codes it never expires, so the
+ * merchant terminal is given a soft window to finish the sale.
+ */
+function resolveMemberCodeGuest(
+  aggregate: EventAggregate,
+  rawCode: unknown,
+  now: Date
+): { guest: Guest; expiresAt: string } {
+  const code = normalizeMemberCode(rawCode);
+  if (!code)
+    throw new DomainError(
+      400,
+      "INVALID_MEMBER_CODE",
+      "會員碼格式不正確，請重新掃描或輸入"
+    );
+  const guest = aggregate.guests.find(item => memberCodeOf(item) === code);
+  if (
+    !guest ||
+    guest.eventId !== aggregate.event.id ||
+    guest.tenantId !== aggregate.event.tenantId
+  )
+    throw new DomainError(404, "MEMBER_NOT_FOUND", "找不到此會員碼的嘉賓");
+  if (isExcludedFromEvent(aggregate.event, guest))
+    throw new DomainError(
+      409,
+      "GUEST_EXCLUDED",
+      "此嘉賓紀錄保留但不參會，不能記錄消費"
+    );
+  return {
+    guest,
+    expiresAt: nowIso(new Date(now.getTime() + MEMBER_CODE_WINDOW_MS)),
+  };
+}
+
+/** Pre-orders a merchant should see when a buyer's membership code is scanned. */
+function pendingPreordersFor(
+  aggregate: EventAggregate,
+  guestId: string,
+  merchantId: string | null
+): Preorder[] {
+  return (aggregate.preorders ?? []).filter(
+    item =>
+      item.guestId === guestId &&
+      item.status === "pending" &&
+      (merchantId === null || item.merchantId === merchantId)
+  );
+}
+
+function preorderWithMerchantName(
+  aggregate: EventAggregate,
+  preorder: Preorder
+): Preorder {
+  return {
+    ...preorder,
+    merchantName:
+      aggregate.merchants.find(item => item.id === preorder.merchantId)?.name ??
+      preorder.merchantName,
+  };
+}
+
+/** Accept either a one-time purchase code or a membership code from a merchant. */
+async function resolveBuyer(
+  connection: PoolConnection,
+  aggregate: EventAggregate,
+  body: Record<string, unknown>,
+  now: Date
+): Promise<{
+  guest: Guest;
+  expiresAt: string;
+  method: "purchase_code" | "member_code";
+}> {
+  if (typeof body.memberCode === "string" && body.memberCode.trim()) {
+    const resolved = resolveMemberCodeGuest(aggregate, body.memberCode, now);
+    return { ...resolved, method: "member_code" };
+  }
+  const code = text(body.code, "消費識別碼", { max: 512 })!;
+  const resolved = await resolvePurchaseGuest(connection, aggregate, code, now);
+  return { ...resolved, method: "purchase_code" };
 }
 
 async function legacyReceipt(context: GuestContext, token: string) {
@@ -1639,11 +1773,15 @@ export function registerEventFlowRoutes(app: Express): void {
             [targetId]
           );
           const target = targets[0];
-          if (!target || target.loginMethod !== "google_direct")
+          if (
+            !target ||
+            (target.loginMethod !== "google_direct" &&
+              target.loginMethod !== "local_password")
+          )
             throw new DomainError(
               404,
               "USER_NOT_FOUND",
-              "請用戶先完成Google登入，才可分配角色"
+              "請用戶先完成Google登入或由管理員建立帳號，才可分配角色"
             );
           if (
             row.owner_user_id === targetId ||
@@ -1699,6 +1837,15 @@ export function registerEventFlowRoutes(app: Express): void {
     })
   );
 
+  registerLocalAccountRoutes(router, {
+    authenticated,
+    authenticatedMutation,
+    bodyObject,
+    route,
+    replayOrStore,
+    sqlDate,
+  });
+
   router.get(
     "/session",
     route(async (req, res) => {
@@ -1728,7 +1875,12 @@ export function registerEventFlowRoutes(app: Express): void {
           name: user.name,
           email: user.email,
           systemRole,
-          provider: user.authProvider === "google" ? "google" : "manus",
+          provider:
+            user.authProvider === "google"
+              ? "google"
+              : user.authProvider === "local"
+                ? "local"
+                : "manus",
         },
         canCreateEvents: isGlobal,
         canManageAccess: isGlobal,
@@ -2386,6 +2538,8 @@ export function registerEventFlowRoutes(app: Express): void {
                   : guest.classNumber,
               };
               assertActiveContactUnique(staged, next);
+              if (input.memberCode)
+                assertMemberCodeUnique(staged, input.memberCode, guest.id);
               if (isExcludedFromEvent(aggregate.event, next)) {
                 next.tableId = null;
                 next.seat = null;
@@ -2490,6 +2644,12 @@ export function registerEventFlowRoutes(app: Express): void {
             next.group === classLabel(guest)
           ) {
             next.group = classLabel(next);
+          }
+          if (body.memberCode !== undefined) {
+            // Empty string resets the membership code to the ticket default.
+            next.memberCode =
+              validateMemberCode(body.memberCode) ?? `M${next.ticket}`;
+            assertMemberCodeUnique(aggregate, next.memberCode, next.id);
           }
           assertActiveContactUnique(aggregate, next);
           aggregate.guests[index] = next;
@@ -2955,20 +3115,24 @@ export function registerEventFlowRoutes(app: Express): void {
           120,
           60 * 1000
         );
-        const resolved = await resolvePurchaseGuest(
-          connection,
-          aggregate,
-          text(body.code, "消費識別碼", { max: 2048 })!,
-          new Date()
-        );
-        return {
+        const now = new Date();
+        const resolved = await resolveBuyer(connection, aggregate, body, now);
+        const response: PurchaseCodeResolved = {
           guest: {
             id: resolved.guest.id,
             name: resolved.guest.name,
             ticket: resolved.guest.ticket,
+            memberCode: memberCodeOf(resolved.guest),
           },
           expiresAt: resolved.expiresAt,
+          method: resolved.method,
+          preorders: pendingPreordersFor(
+            aggregate,
+            resolved.guest.id,
+            merchantId
+          ).map(item => preorderWithMerchantName(aggregate, item)),
         };
+        return response;
       });
       res.setHeader("Cache-Control", "private, no-store");
       res.json(response);
@@ -3111,12 +3275,176 @@ export function registerEventFlowRoutes(app: Express): void {
               intendedGuest = (
                 await resolvePurchaseGuest(connection, aggregate, code, now)
               ).guest;
+            } else if (body.memberCode !== undefined) {
+              intendedGuest = resolveMemberCodeGuest(
+                aggregate,
+                body.memberCode,
+                now
+              ).guest;
             }
           },
         }
       );
       res.status(201).json(response);
     })
+  );
+
+  // ---------------------------------------------------------------------
+  // Pre-orders: items a buyer reserved (manually or via the yeeahk shop) that
+  // the merchant hands over on event day after scanning the membership code.
+  // ---------------------------------------------------------------------
+  router.post(
+    "/events/:eventId/preorders",
+    route(async (req, res) => {
+      const user = await authenticatedMutation(req);
+      const body = bodyObject(req);
+      const response = await withLockedStaffEvent(
+        req,
+        user,
+        req.params.eventId,
+        "preorder.create",
+        ["owner", "admin", "project_manager", "merchant"],
+        async ({ aggregate, access, now }) => {
+          assertFeatureEnabled(aggregate.event, "commerce");
+          const merchantId = text(body.merchantId, "商戶", { max: 36 })!;
+          ensureMerchantScope(access, merchantId);
+          const merchant = aggregate.merchants.find(
+            item => item.id === merchantId && item.active
+          );
+          if (!merchant)
+            throw new DomainError(
+              409,
+              "MERCHANT_INACTIVE",
+              "商戶不存在或未啟用"
+            );
+          let guest: Guest | undefined;
+          if (typeof body.guestId === "string" && body.guestId) {
+            guest = aggregate.guests.find(item => item.id === body.guestId);
+            if (!guest)
+              throw new DomainError(404, "GUEST_NOT_FOUND", "找不到嘉賓");
+            assertParticipating(aggregate.event, guest);
+          } else {
+            guest = resolveMemberCodeGuest(
+              aggregate,
+              body.memberCode,
+              now
+            ).guest;
+          }
+          const quantityRaw = body.quantity ?? 1;
+          if (
+            typeof quantityRaw !== "number" ||
+            !Number.isInteger(quantityRaw) ||
+            quantityRaw < 1 ||
+            quantityRaw > 999
+          )
+            throw new DomainError(400, "VALIDATION_ERROR", "數量須為 1 至 999");
+          const amountCents =
+            body.amountCents === undefined ||
+            body.amountCents === null ||
+            body.amountCents === 0
+              ? 0
+              : integerCents(body.amountCents, "預購金額");
+          const preorder: Preorder = {
+            id: randomUUID(),
+            tenantId: aggregate.event.tenantId,
+            eventId: aggregate.event.id,
+            guestId: guest.id,
+            merchantId,
+            merchantName: merchant.name,
+            item: text(body.item, "預購項目", { max: 200 })!,
+            quantity: quantityRaw,
+            amountCents,
+            status: "pending",
+            source: "manual",
+            note:
+              text(body.note, "備註", { optional: true, min: 0, max: 500 }) ||
+              undefined,
+            createdAt: nowIso(now),
+            collectedAt: null,
+          };
+          aggregate.preorders ??= [];
+          aggregate.preorders.push(preorder);
+          addAudit(
+            aggregate,
+            "preorder.created",
+            `user:${user.id}`,
+            `已為 ${guest.name} 建立預購單：${preorder.item} × ${preorder.quantity}`,
+            now
+          );
+          return { preorder };
+        }
+      );
+      res.status(201).json(response);
+    })
+  );
+
+  const preorderTransition = (
+    status: "collected" | "cancelled",
+    action: string,
+    auditAction: string,
+    label: string
+  ) =>
+    route(async (req: Request, res: Response) => {
+      const user = await authenticatedMutation(req);
+      const response = await withLockedStaffEvent(
+        req,
+        user,
+        req.params.eventId,
+        action,
+        ["owner", "admin", "project_manager", "merchant"],
+        async ({ aggregate, access, now }) => {
+          assertFeatureEnabled(aggregate.event, "commerce");
+          const preorder = (aggregate.preorders ?? []).find(
+            item => item.id === req.params.id
+          );
+          if (!preorder)
+            throw new DomainError(404, "PREORDER_NOT_FOUND", "找不到預購單");
+          ensureMerchantScope(access, preorder.merchantId);
+          if (preorder.status !== "pending")
+            throw new DomainError(
+              409,
+              "PREORDER_NOT_PENDING",
+              preorder.status === "collected"
+                ? "此預購單已標記為已取貨"
+                : "此預購單已取消"
+            );
+          preorder.status = status;
+          if (status === "collected") preorder.collectedAt = nowIso(now);
+          else preorder.cancelledAt = nowIso(now);
+          const guest = aggregate.guests.find(
+            item => item.id === preorder.guestId
+          );
+          addAudit(
+            aggregate,
+            auditAction,
+            `user:${user.id}`,
+            `${guest?.name ?? "嘉賓"} 的預購單「${preorder.item}」${label}`,
+            now
+          );
+          return { preorder: preorderWithMerchantName(aggregate, preorder) };
+        }
+      );
+      res.json(response);
+    });
+
+  router.post(
+    "/events/:eventId/preorders/:id/collect",
+    preorderTransition(
+      "collected",
+      "preorder.collect",
+      "preorder.collected",
+      "已取貨"
+    )
+  );
+
+  router.post(
+    "/events/:eventId/preorders/:id/cancel",
+    preorderTransition(
+      "cancelled",
+      "preorder.cancel",
+      "preorder.cancelled",
+      "已取消"
+    )
   );
 
   router.post(
@@ -4057,15 +4385,23 @@ export function registerEventFlowRoutes(app: Express): void {
             seat: guest.seat,
           }
         : null;
+      const preorders = (aggregate.preorders ?? [])
+        .filter(
+          item =>
+            item.guestId === guest.id && item.eventId === aggregate.event.id
+        )
+        .map(item => preorderWithMerchantName(aggregate, item));
       res.json({
         event: basicEvent(aggregate.event),
         guest: {
           ...guestSelfView(guest),
+          memberCode: memberCodeOf(guest),
           chances: availableChances(aggregate, guest.id),
         },
         table,
         receipts,
         draws,
+        preorders,
       });
     })
   );

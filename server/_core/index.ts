@@ -5,6 +5,8 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerGoogleAuthRoutes } from "./googleAuth";
 import { registerParticipantAuthRoutes } from "./participantAuth";
+import { registerLocalAuthRoutes } from "./localAuth";
+import { registerIntegrationRoutes } from "../eventflow/integrations";
 import { publicPlatformScript } from "./publicConfig";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
@@ -26,6 +28,8 @@ async function startServer() {
   });
   registerParticipantAuthRoutes(app);
   registerGoogleAuthRoutes(app);
+  registerLocalAuthRoutes(app);
+  registerIntegrationRoutes(app);
   registerOAuthRoutes(app);
   registerEventFlowRoutes(app);
   // tRPC API

@@ -21,6 +21,7 @@ import { ELITE_GUEST_EVENT_SLUG } from "@shared/young-friends";
 import EliteGuestQuickActions from "@/components/event/EliteGuestQuickActions";
 import { GUEST_INVITE_STORAGE_KEY } from "@/lib/role-home";
 import "@/styles/event-mobile.css";
+import "@/styles/member-commerce.css";
 
 const INVITE_STORAGE_KEY = GUEST_INVITE_STORAGE_KEY;
 

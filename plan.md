@@ -37,3 +37,6 @@
 - `client/src/pages/EventWorkspace.tsx`、`client/src/components/event/EventShell.tsx`、`client/src/components/event/AdminOverview.tsx`：授權範圍提示、導覽與管理員快捷列。
 - `client/src/pages/MerchantTerminal.tsx`、`client/src/pages/GuestPortal.tsx`、`client/src/components/event/ConsumerTickets.tsx`、`client/src/styles/consumption.css`：商家三步與用戶 QR 優先。
 - `server/_core/googleAuth.ts`、`server/google-auth.test.ts`、`server/consumption-ui-contract.test.ts`、`api-contract.md`：returnTo 白名單與回歸測試。
+
+## 2026-11-24 Phase A 完成：簡單登入與會員碼
+帳號密碼登入（scrypt＋JWT cookie）、會員碼掃碼購物確認、預購單查看、yeeahk 接口預留。Phase B（活動節目：抽獎／利是／終極大獎／拍賣）待規則確認。

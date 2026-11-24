@@ -13,6 +13,7 @@ import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
 import { authenticateGoogleRequest } from "./googleAuth";
+import { authenticateLocalRequest } from "./localAuth";
 import { hasParticipantCookie } from "./participantAuth";
 import type {
   ExchangeTokenRequest,
@@ -274,6 +275,9 @@ class SDKServer {
     }
     const googleUser = await authenticateGoogleRequest(req);
     if (googleUser) return googleUser;
+    // Username/password staff accounts; an invalid cookie fails closed above.
+    const localUser = await authenticateLocalRequest(req);
+    if (localUser) return localUser;
     // 1. Prefer the session cookie (regular OAuth login).
     const cookies = this.parseCookies(req.headers.cookie);
     let sessionToken = cookies.get(COOKIE_NAME);
@@ -350,7 +354,7 @@ const CRON_OPEN_ID_PREFIX = "cron_";
 export type AuthenticatedUser = User & {
   taskUid?: string;
   isCron?: boolean;
-  authProvider?: "google" | "manus";
+  authProvider?: "google" | "manus" | "local";
   emailVerified?: boolean;
 };
 

@@ -332,6 +332,7 @@ describe("production purchase handshake with mocked DB only", () => {
       id: "guest",
       name: "嘉賓一",
       ticket: "000001",
+      memberCode: "M000001",
     });
     expect(JSON.stringify(resolved.body)).not.toMatch(
       /private|phone|email|note|group/

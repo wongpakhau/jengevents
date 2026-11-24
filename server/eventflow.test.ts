@@ -148,34 +148,37 @@ describe("EventFlow pure business engine", () => {
   });
 
   it("does not silently alter a draw source and rejects another draw for the same prize", () => {
-    const snapshot = buildDrawSnapshot({
-      guests: [guest("g1"), guest("g2")],
-      ledger: [
-        {
-          id: "l1",
-          guestId: "g1",
-          receiptId: "r1",
-          ruleVersion: 1,
-          delta: 1,
-          kind: "claim",
-          createdAt: "x",
-        },
-        {
-          id: "l2",
-          guestId: "g2",
-          receiptId: "r2",
-          ruleVersion: 1,
-          delta: 2,
-          kind: "claim",
-          createdAt: "x",
-        },
-      ],
-      receipts: [
-        receipt({ id: "r1", guestId: "g1" }),
-        receipt({ id: "r2", guestId: "g2" }),
-      ],
-      draws: [],
-    }, false);
+    const snapshot = buildDrawSnapshot(
+      {
+        guests: [guest("g1"), guest("g2")],
+        ledger: [
+          {
+            id: "l1",
+            guestId: "g1",
+            receiptId: "r1",
+            ruleVersion: 1,
+            delta: 1,
+            kind: "claim",
+            createdAt: "x",
+          },
+          {
+            id: "l2",
+            guestId: "g2",
+            receiptId: "r2",
+            ruleVersion: 1,
+            delta: 2,
+            kind: "claim",
+            createdAt: "x",
+          },
+        ],
+        receipts: [
+          receipt({ id: "r1", guestId: "g1" }),
+          receipt({ id: "r2", guestId: "g2" }),
+        ],
+        draws: [],
+      },
+      false
+    );
     expect(selectWeightedWinner(snapshot, () => 2).winnerGuestId).toBe("g2");
     const draw = {
       id: "d1",
@@ -208,8 +211,20 @@ describe("EventFlow pure business engine", () => {
       ],
     });
     expect(snapshot).toEqual([
-      { guestId: "g1", ticket: "000001", chances: 1, ledgerIds: [], receiptIds: [] },
-      { guestId: "g2", ticket: "000002", chances: 1, ledgerIds: [], receiptIds: [] },
+      {
+        guestId: "g1",
+        ticket: "000001",
+        chances: 1,
+        ledgerIds: [],
+        receiptIds: [],
+      },
+      {
+        guestId: "g2",
+        ticket: "000002",
+        chances: 1,
+        ledgerIds: [],
+        receiptIds: [],
+      },
     ]);
   });
 });

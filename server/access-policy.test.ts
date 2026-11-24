@@ -11,34 +11,31 @@ describe("system access policy", () => {
     "yeeayeeahk@gmail.com",
     "garyyang020730@gmail.com",
     "cj93128@gmail.com",
-  ])(
-    "recognises only verified Google owner %s",
-    email => {
-      expect(
-        isSystemOwner({ email, authProvider: "google", emailVerified: true })
-      ).toBe(true);
-      expect(
-        isSystemOwner({ email, authProvider: "manus", emailVerified: true })
-      ).toBe(false);
-      expect(
-        isSystemOwner({ email, authProvider: "google", emailVerified: false })
-      ).toBe(false);
-      expect(
-        isSystemOwner({
-          email: `  ${email.toUpperCase()}  `,
-          authProvider: "google",
-          emailVerified: true,
-        })
-      ).toBe(true);
-      expect(
-        isSystemOwner({
-          email,
-          authProvider: undefined,
-          emailVerified: undefined,
-        })
-      ).toBe(false);
-    }
-  );
+  ])("recognises only verified Google owner %s", email => {
+    expect(
+      isSystemOwner({ email, authProvider: "google", emailVerified: true })
+    ).toBe(true);
+    expect(
+      isSystemOwner({ email, authProvider: "manus", emailVerified: true })
+    ).toBe(false);
+    expect(
+      isSystemOwner({ email, authProvider: "google", emailVerified: false })
+    ).toBe(false);
+    expect(
+      isSystemOwner({
+        email: `  ${email.toUpperCase()}  `,
+        authProvider: "google",
+        emailVerified: true,
+      })
+    ).toBe(true);
+    expect(
+      isSystemOwner({
+        email,
+        authProvider: undefined,
+        emailVerified: undefined,
+      })
+    ).toBe(false);
+  });
   it("refuses another registered or similar email", () => {
     expect(
       isSystemOwner({

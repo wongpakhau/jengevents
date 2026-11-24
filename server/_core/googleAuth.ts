@@ -465,6 +465,7 @@ export function registerGoogleAuthRoutes(app: Express): void {
       return;
     }
     res.clearCookie(GOOGLE_SESSION_COOKIE, GOOGLE_SESSION_COOKIE_OPTIONS);
+    res.clearCookie("eventflow_local_session", GOOGLE_SESSION_COOKIE_OPTIONS);
     res.clearCookie(COOKIE_NAME, getSessionCookieOptions(req));
     clearGoogleTransactionCookie(res);
     res.json({ ok: true });

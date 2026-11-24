@@ -1,0 +1,219 @@
+/* Username/password sign-in (accounts created by the organiser). */
+.role-entry .role-local-login {
+  width: min(1040px, 100%);
+  display: flex;
+  justify-content: center;
+  margin-top: 4px;
+}
+.local-login-form {
+  display: grid;
+  gap: 10px;
+  width: min(420px, 100%);
+  padding: 16px 18px;
+  border: 1px solid var(--mvp-line, #e1e5dc);
+  border-radius: 14px;
+  background: #fff;
+  text-align: left;
+}
+.local-login-form strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+.local-login-form label {
+  display: grid;
+  gap: 5px;
+  color: #626b60;
+  font-size: 12px;
+  font-weight: 600;
+}
+.local-login-form input {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #dfe4da;
+  border-radius: 10px;
+  background: #fff;
+  color: #30362f;
+  font-size: 16px;
+  font-weight: 400;
+}
+.local-login-form input:focus {
+  outline: none;
+  border-color: #b99044;
+  box-shadow: 0 0 0 3px #dcbf8333;
+}
+.local-login-form .button {
+  min-height: 44px;
+}
+.local-login-form small {
+  color: #6b7266;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.local-login-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Buyer confirmation pop-up shown on the guest page when a merchant scans. */
+.purchase-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(20, 24, 20, 0.55);
+  animation: purchase-dialog-fade 160ms ease-out;
+}
+@media (min-width: 640px) {
+  .purchase-dialog-backdrop {
+    align-items: center;
+  }
+}
+.purchase-dialog {
+  width: min(440px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 20px 20px 18px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  animation: purchase-dialog-rise 200ms ease-out;
+}
+.purchase-dialog h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.purchase-dialog .purchase-dialog-merchant {
+  color: #626b60;
+  font-size: 14px;
+}
+.purchase-dialog .purchase-dialog-amount {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--mvp-ink, #202321);
+}
+.purchase-dialog .purchase-dialog-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: #6b7266;
+  font-size: 13px;
+}
+.purchase-dialog .purchase-dialog-actions {
+  display: grid;
+  gap: 8px;
+}
+.purchase-dialog .purchase-dialog-actions .button {
+  min-height: 50px;
+  font-size: 16px;
+}
+.purchase-dialog .purchase-dialog-more {
+  color: #6b7266;
+  font-size: 12px;
+}
+@keyframes purchase-dialog-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes purchase-dialog-rise {
+  from {
+    transform: translateY(18px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Membership QR block on the guest page. */
+.member-qr-card {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--mvp-line, #e1e5dc);
+  border-radius: 16px;
+  background: #fff;
+  text-align: center;
+}
+.member-qr-card .member-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.member-qr-card small {
+  color: #6b7266;
+}
+
+/* Pre-order lists (guest page + merchant terminal). */
+.preorder-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.preorder-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--mvp-line, #e1e5dc);
+  border-radius: 12px;
+  background: #fff;
+}
+.preorder-list li.is-collected {
+  opacity: 0.6;
+}
+.preorder-list .preorder-item {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.preorder-list .preorder-item strong {
+  font-size: 15px;
+}
+.preorder-list .preorder-item small {
+  color: #6b7266;
+}
+.preorder-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #fff3d6;
+  color: #8a5d00;
+}
+.preorder-badge.is-collected {
+  background: #e6f4ea;
+  color: #1e6b36;
+}
+.preorder-badge.is-cancelled {
+  background: #f1f1f1;
+  color: #666;
+}
+.preorder-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+.preorder-actions .button {
+  min-height: 40px;
+  padding: 6px 12px;
+  font-size: 13px;
+}

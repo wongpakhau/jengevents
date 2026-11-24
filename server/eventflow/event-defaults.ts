@@ -74,5 +74,6 @@ export function newAggregate(event: EventInfo): EventAggregate {
     draws: [],
     ledger: [],
     audit: [],
+    preorders: [],
   };
 }

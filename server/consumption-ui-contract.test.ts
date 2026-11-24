@@ -107,3 +107,23 @@ describe("role entry and landing regressions", () => {
     expect(overview).toContain("session?.canManageAccess");
   });
 });
+
+describe("member code commerce regressions", () => {
+  it("shows the member QR and a confirmation dialog on the guest side", () => {
+    const source = read("client/src/components/event/ConsumerTickets.tsx");
+    expect(source).toContain("memberQrValue");
+    expect(source).toContain('role="dialog"');
+    expect(source).toContain("PreorderList");
+  });
+  it("lets merchants scan member codes and see unfetched preorders", () => {
+    const source = read("client/src/pages/MerchantTerminal.tsx");
+    expect(source).toContain("memberCodeFromQr");
+    expect(source).toContain("#member=");
+    expect(source).toContain("/preorders");
+  });
+  it("offers account and password login next to Google", () => {
+    expect(read("client/src/components/event/WorkspaceGate.tsx")).toContain(
+      "LocalLoginForm"
+    );
+  });
+});

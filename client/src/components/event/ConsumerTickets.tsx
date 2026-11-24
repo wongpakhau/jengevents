@@ -3,18 +3,34 @@ import {
   CheckCircle2,
   CircleAlert,
   LoaderCircle,
+  Package,
   QrCode,
   RefreshCw,
   Ticket,
 } from "lucide-react";
-import type { ClaimResult, GuestView, Receipt } from "@shared/eventflow";
+import {
+  memberCodeOf,
+  type ClaimResult,
+  type GuestView,
+  type Preorder,
+  type Receipt,
+} from "@shared/eventflow";
 import { apiGuest, idempotencyKey, money } from "@/lib/eventflow-api";
+import { memberQrValue } from "@/lib/member-qr";
 import QRCode from "./QRCode";
 
 interface PurchaseCode {
   code: string;
   path: string;
   expiresAt: string;
+}
+
+function safeOrigin(): string {
+  try {
+    return window.location.origin;
+  } catch {
+    return "";
+  }
 }
 
 export default function ConsumerTickets({
@@ -28,16 +44,18 @@ export default function ConsumerTickets({
   view: GuestView;
   onUpdate: (view: GuestView) => void;
   accessPending: boolean;
-  /** Generate and show the personal consumption QR as soon as identity is confirmed. */
+  /** Expand the membership QR as soon as identity is confirmed. */
   autoShow?: boolean;
 }) {
   const [code, setCode] = useState<PurchaseCode | null>(null);
   const [showCode, setShowCode] = useState(false);
+  const [showMember, setShowMember] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [clock, setClock] = useState(Date.now());
+  const [dismissed, setDismissed] = useState<string | null>(null);
   const busyRef = useRef(false);
   const mounted = useRef(true);
   const keys = useRef(new Map<string, string>());
@@ -45,6 +63,7 @@ export default function ConsumerTickets({
   const latestView = useRef(view);
   const revision = useRef(0);
   const autoShown = useRef(false);
+  const buzzed = useRef<string | null>(null);
   callback.current = onUpdate;
   latestView.current = view;
 
@@ -87,7 +106,8 @@ export default function ConsumerTickets({
         refreshing = false;
       }
     };
-    const timer = window.setInterval(() => void refresh(), 5000);
+    // Poll faster while the merchant is likely typing an amount for us.
+    const timer = window.setInterval(() => void refresh(), 3000);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -128,12 +148,10 @@ export default function ConsumerTickets({
     }
   };
 
-  const createCodeRef = useRef(createCode);
-  createCodeRef.current = createCode;
   useEffect(() => {
     if (!autoShow || accessPending || autoShown.current) return;
     autoShown.current = true;
-    void createCodeRef.current();
+    setShowMember(true);
   }, [autoShow, accessPending]);
 
   const decide = async (receipt: Receipt, confirmed: boolean) => {
@@ -209,6 +227,27 @@ export default function ConsumerTickets({
   const threshold = view.event.thresholdCents;
   const pending = view.receipts.filter(receipt => receipt.status === "pending");
   const expired = !code || Date.parse(code.expiresAt) <= clock;
+  const memberCode = memberCodeOf(view.guest);
+  const origin = safeOrigin();
+  const preorders = view.preorders ?? [];
+  const pendingPreorders = preorders.filter(item => item.status === "pending");
+
+  // The newest live pending receipt becomes the pop-up; the guest can dismiss
+  // it to reach the full list below, and a new receipt re-opens it.
+  const popup =
+    pending
+      .filter(receipt => Date.parse(receipt.expiresAt) > clock)
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0] ??
+    null;
+  const popupOpen = Boolean(popup) && popup!.id !== dismissed;
+
+  useEffect(() => {
+    if (!popup || buzzed.current === popup.id) return;
+    buzzed.current = popup.id;
+    try {
+      navigator.vibrate?.([120, 60, 120]);
+    } catch {}
+  }, [popup]);
 
   return (
     <section
@@ -217,61 +256,104 @@ export default function ConsumerTickets({
     >
       <div className="event-mobile-card__heading">
         <div>
-          <span className="event-mobile-eyebrow">SPEND & EARN</span>
-          <h2 id="consumption-tickets-title">消費領抽獎券</h2>
+          <span className="event-mobile-eyebrow">MEMBER CODE</span>
+          <h2 id="consumption-tickets-title">我的會員碼・消費領抽獎券</h2>
         </div>
         <Ticket size={24} />
       </div>
-      <p>出示你的消費 QR，讓商家掃描及輸入金額，再由你核對並確認。</p>
-      <button
-        type="button"
-        className="event-mobile-primary"
-        disabled={busy !== null || accessPending}
-        onClick={() => {
-          if (!showCode || expired) void createCode();
-          else setShowCode(false);
-        }}
-      >
-        {busy === "code" ? (
-          <LoaderCircle size={18} className="event-mobile-spin" />
-        ) : (
-          <QrCode size={18} />
-        )}
-        {busy === "code"
-          ? "正在產生…"
-          : showCode && !expired
-            ? "收起我的 QR code"
-            : showCode && expired
-              ? "更新我的 QR code"
-              : "SHOW 我的 QR code"}
-      </button>
-      {showCode && code && (
-        <div className="consumption-qr">
-          {expired ? (
-            <p role="status">
-              消費 QR 已過期，請按「更新我的 QR code」後讓商家重新掃描。
-            </p>
-          ) : (
-            <QRCode value={code.path} title="我的消費 QR（只供授權商家掃描）" />
-          )}
-          <p className="event-mobile-help">
-            有效至{" "}
-            {new Date(code.expiresAt).toLocaleTimeString("zh-HK", {
-              timeZone: "Asia/Hong_Kong",
-            })}
-            （香港時間）。此碼不是登入憑證，不會公開電話或電郵。請只向現場商家出示。
-          </p>
+      <p>
+        出示下方會員 QR
+        讓商家掃描並輸入金額；你的手機會彈出確認視窗，按「確認」即完成並累積抽獎機會。
+      </p>
+      {showMember ? (
+        <div className="member-qr-card">
+          {origin ? (
+            <QRCode
+              value={memberQrValue(memberCode, origin)}
+              title="我的會員 QR（供現場商家掃描）"
+            />
+          ) : null}
+          <span className="member-code" aria-label="會員碼">
+            {memberCode}
+          </span>
+          <small>
+            商家亦可直接輸入此會員碼。此碼不是登入憑證，不會公開你的電話或電郵。
+          </small>
           <button
             type="button"
             className="event-mobile-text-button"
-            disabled={busy !== null || accessPending}
-            onClick={() => void createCode()}
+            onClick={() => setShowMember(false)}
           >
-            <RefreshCw size={16} />
-            更新消費 QR
+            收起會員 QR
           </button>
         </div>
+      ) : (
+        <button
+          type="button"
+          className="event-mobile-primary"
+          onClick={() => setShowMember(true)}
+        >
+          <QrCode size={18} />
+          SHOW 我的會員 QR
+        </button>
       )}
+      <details className="consumption-onetime">
+        <summary className="event-mobile-help">
+          備用：產生一次性消費 QR（10 分鐘內有效）
+        </summary>
+        <button
+          type="button"
+          className="button button-white"
+          disabled={busy !== null || accessPending}
+          onClick={() => {
+            if (!showCode || expired) void createCode();
+            else setShowCode(false);
+          }}
+        >
+          {busy === "code" ? (
+            <LoaderCircle size={18} className="event-mobile-spin" />
+          ) : (
+            <QrCode size={18} />
+          )}
+          {busy === "code"
+            ? "正在產生…"
+            : showCode && !expired
+              ? "收起一次性 QR"
+              : showCode && expired
+                ? "更新一次性 QR"
+                : "產生一次性 QR"}
+        </button>
+        {showCode && code && (
+          <div className="consumption-qr">
+            {expired ? (
+              <p role="status">
+                一次性 QR 已過期，請按「更新一次性 QR」後讓商家重新掃描。
+              </p>
+            ) : (
+              <QRCode
+                value={code.path}
+                title="一次性消費 QR（只供授權商家掃描）"
+              />
+            )}
+            <p className="event-mobile-help">
+              有效至{" "}
+              {new Date(code.expiresAt).toLocaleTimeString("zh-HK", {
+                timeZone: "Asia/Hong_Kong",
+              })}
+              （香港時間）。
+            </p>
+            <button
+              type="button"
+              className="event-mobile-text-button"
+              disabled={busy !== null || accessPending}
+              onClick={() => void createCode()}
+            >
+              <RefreshCw size={16} />
+              更新一次性 QR
+            </button>
+          </div>
+        )}
+      </details>
       <p className="event-mobile-help">
         {view.event.accumulation === "cumulative"
           ? `已確認消費跨筆累積，每滿 ${money(threshold)} 得一次一般抽獎機會，未滿餘額保留。`
@@ -316,12 +398,29 @@ export default function ConsumerTickets({
           {error}
         </p>
       )}
+
+      <div className="event-mobile-card__heading">
+        <h3>
+          <Package size={18} aria-hidden="true" /> 我的預購單
+        </h3>
+        <span className="event-mobile-pill">
+          {pendingPreorders.length} 筆未取
+        </span>
+      </div>
+      {preorders.length === 0 ? (
+        <p className="event-mobile-empty">
+          未有預購單。商家掃描你的會員碼時會看到你尚未取貨的預購。
+        </p>
+      ) : (
+        <PreorderList items={preorders} />
+      )}
+
       <div className="event-mobile-card__heading">
         <h3>待你確認的消費</h3>
         <span className="event-mobile-pill">{pending.length} 筆</span>
       </div>
       <p className="event-mobile-help">
-        約每 5 秒更新
+        約每 3 秒更新
         {updatedAt
           ? `；上次 ${new Date(updatedAt).toLocaleTimeString("zh-HK")}`
           : ""}
@@ -329,7 +428,7 @@ export default function ConsumerTickets({
       </p>
       {!pending.length && (
         <p className="event-mobile-empty">
-          未有待確認消費。先讓商家掃描上方 QR。
+          未有待確認消費。先讓商家掃描上方會員 QR。
         </p>
       )}
       {pending.map(receipt => {
@@ -366,6 +465,142 @@ export default function ConsumerTickets({
           </article>
         );
       })}
+
+      {popupOpen && popup && (
+        <div
+          className="purchase-dialog-backdrop"
+          onClick={() => setDismissed(popup.id)}
+        >
+          <div
+            className="purchase-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="purchase-dialog-title"
+            onClick={event => event.stopPropagation()}
+          >
+            <h2 id="purchase-dialog-title">商家已為你開單，請確認金額</h2>
+            <div className="purchase-dialog-merchant">
+              {popup.merchantName || "活動授權商戶"}
+            </div>
+            <div className="purchase-dialog-amount">
+              {money(popup.amountCents)}
+            </div>
+            <div className="purchase-dialog-meta">
+              <span>參考 {popup.reference}</span>
+              <span>
+                {new Date(popup.createdAt).toLocaleTimeString("zh-HK")}
+              </span>
+            </div>
+            <div className="purchase-dialog-actions">
+              <button
+                type="button"
+                className="event-mobile-primary"
+                disabled={busy !== null || accessPending}
+                onClick={() => void decide(popup, true)}
+              >
+                {busy === popup.id ? "處理中…" : "確認金額並領抽獎券"}
+              </button>
+              <button
+                type="button"
+                className="button button-white"
+                disabled={busy !== null || accessPending}
+                onClick={() => void decide(popup, false)}
+              >
+                金額有誤／拒絕
+              </button>
+            </div>
+            {pending.length > 1 && (
+              <p className="purchase-dialog-more">
+                另有 {pending.length - 1} 筆待確認，確認後會逐一顯示。
+              </p>
+            )}
+            <button
+              type="button"
+              className="event-mobile-text-button"
+              onClick={() => setDismissed(popup.id)}
+            >
+              稍後再確認
+            </button>
+          </div>
+        </div>
+      )}
     </section>
+  );
+}
+
+export function PreorderList({
+  items,
+  onCollect,
+  onCancel,
+  busyId,
+}: {
+  items: Preorder[];
+  onCollect?: (item: Preorder) => void;
+  onCancel?: (item: Preorder) => void;
+  busyId?: string | null;
+}) {
+  const label = (status: Preorder["status"]) =>
+    status === "pending"
+      ? "未取貨"
+      : status === "collected"
+        ? "已取貨"
+        : "已取消";
+  return (
+    <ul className="preorder-list">
+      {items.map(item => (
+        <li
+          key={item.id}
+          className={item.status !== "pending" ? "is-collected" : ""}
+        >
+          <div className="preorder-item">
+            <strong>
+              {item.item} × {item.quantity}
+            </strong>
+            <small>
+              {item.merchantName || "商戶"}
+              {item.amountCents > 0 ? ` · ${money(item.amountCents)}` : ""}
+              {item.note ? ` · ${item.note}` : ""}
+              {item.source === "yeeahk" ? " · 來自商城" : ""}
+            </small>
+          </div>
+          {item.status === "pending" && (onCollect || onCancel) ? (
+            <div className="preorder-actions">
+              {onCollect && (
+                <button
+                  type="button"
+                  className="button button-dark"
+                  disabled={busyId === item.id}
+                  onClick={() => onCollect(item)}
+                >
+                  {busyId === item.id ? "處理中…" : "已取貨"}
+                </button>
+              )}
+              {onCancel && (
+                <button
+                  type="button"
+                  className="button button-white"
+                  disabled={busyId === item.id}
+                  onClick={() => onCancel(item)}
+                >
+                  取消
+                </button>
+              )}
+            </div>
+          ) : (
+            <span
+              className={`preorder-badge ${
+                item.status === "collected"
+                  ? "is-collected"
+                  : item.status === "cancelled"
+                    ? "is-cancelled"
+                    : ""
+              }`}
+            >
+              {label(item.status)}
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }

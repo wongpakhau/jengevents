@@ -66,8 +66,20 @@ const aggregate = {
     { id: "other", name: "Other" },
   ],
   receipts: [
-    { id: "mine", merchantId: "my", status: "valid", amountCents: 10000, feeCents: 1000 },
-    { id: "theirs", merchantId: "other", status: "valid", amountCents: 50000, feeCents: 5000 },
+    {
+      id: "mine",
+      merchantId: "my",
+      status: "valid",
+      amountCents: 10000,
+      feeCents: 1000,
+    },
+    {
+      id: "theirs",
+      merchantId: "other",
+      status: "valid",
+      amountCents: 50000,
+      feeCents: 5000,
+    },
   ],
   payments: [{ id: "payment", merchantId: "my", amountCents: 300 }],
   prizes: [],
@@ -162,19 +174,28 @@ describe("event access API", () => {
     expect(r.headers.get("cache-control")).toContain("no-store");
   });
   it("merchant settlement exposes only its own totals even with a different merchant parameter", async () => {
-    const response = await request("/events/event/settlements?merchantId=other");
+    const response = await request(
+      "/events/event/settlements?merchantId=other"
+    );
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("no-store");
     const rows = await response.json();
     expect(rows).toHaveLength(1);
     expect(rows[0].merchant.id).toBe("my");
-    expect(rows[0]).toMatchObject({ salesCents: 10000, dueCents: 1000, paidCents: 300, balanceCents: 700 });
+    expect(rows[0]).toMatchObject({
+      salesCents: 10000,
+      dueCents: 1000,
+      paidCents: 300,
+      balanceCents: 700,
+    });
   });
   it("managers see all merchants but other staff cannot read settlements", async () => {
     eventRole = "project_manager";
     const managerResponse = await request("/events/event/settlements");
     expect(managerResponse.status).toBe(200);
-    expect((await managerResponse.json()).map((row: any) => row.merchant.id)).toEqual(["my", "other"]);
+    expect(
+      (await managerResponse.json()).map((row: any) => row.merchant.id)
+    ).toEqual(["my", "other"]);
     for (const role of ["checkin", "guest_manager", "draw"]) {
       eventRole = role;
       expect((await request("/events/event/settlements")).status).toBe(403);

@@ -86,12 +86,31 @@ export type Guest = {
   /** Private staff-only note. It is never added to the public event listing. */
   note: string;
   ticket: string;
+  /**
+   * Membership code shown as the guest's personal QR (for example BP54). Unique
+   * within an event; derived from the ticket when the organiser has not set one.
+   */
+  memberCode?: string;
   checkedInAt: string | null;
   tableId: string | null;
   seat: number | null;
   chances: number;
   createdAt: string;
 };
+
+export const MEMBER_CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{1,19}$/;
+
+/** Upper-case, trimmed; returns null when the value is not a usable code. */
+export function normalizeMemberCode(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const code = value.trim().toUpperCase();
+  return MEMBER_CODE_PATTERN.test(code) ? code : null;
+}
+
+/** Every guest has a code: the organiser's own or M + ticket number. */
+export function memberCodeOf(guest: Pick<Guest, "memberCode" | "ticket">) {
+  return guest.memberCode || `M${guest.ticket}`;
+}
 
 export function isExcludedFromEvent(
   event: Pick<EventInfo, "mode">,
@@ -160,6 +179,28 @@ export type Payment = {
   createdAt: string;
 };
 
+/** A pre-ordered item the guest collects from a merchant at the fair. */
+export type Preorder = {
+  id: string;
+  tenantId: string;
+  eventId: string;
+  guestId: string;
+  merchantId: string;
+  merchantName?: string;
+  item: string;
+  quantity: number;
+  /** 0 when the amount is unknown or already paid elsewhere. */
+  amountCents: number;
+  status: "pending" | "collected" | "cancelled";
+  /** manual: entered on site; yeeahk: synced from the online shop later. */
+  source: "manual" | "yeeahk";
+  externalId?: string;
+  note?: string;
+  createdAt: string;
+  collectedAt: string | null;
+  cancelledAt?: string | null;
+};
+
 export type Prize = {
   id: string;
   name: string;
@@ -216,6 +257,7 @@ export type WorkspaceState = {
   draws: Draw[];
   members: Member[];
   audit: Audit[];
+  preorders?: Preorder[];
 };
 
 export type Session = {
@@ -224,7 +266,7 @@ export type Session = {
     name: string | null;
     email: string | null;
     systemRole: "owner" | "admin" | "user";
-    provider: "google" | "manus";
+    provider: "google" | "manus" | "local";
   };
   canCreateEvents: boolean;
   canManageAccess: boolean;
@@ -238,6 +280,7 @@ export type GuestView = {
   table: { number: number; label: string; seat: number | null } | null;
   receipts: Receipt[];
   draws: Draw[];
+  preorders?: Preorder[];
 };
 
 export type ReceiptIssued = {
@@ -253,8 +296,12 @@ export type PurchaseCodeIssued = {
   expiresAt: string;
 };
 export type PurchaseCodeResolved = {
-  guest: Pick<Guest, "id" | "name" | "ticket">;
+  guest: Pick<Guest, "id" | "name" | "ticket"> & { memberCode: string };
   expiresAt: string;
+  /** member_code: resolved from the guest's membership QR or typed code. */
+  method: "purchase_code" | "member_code";
+  /** Uncollected pre-orders for the resolving merchant only. */
+  preorders: Preorder[];
 };
 export type ClaimPreview = { receipt: Receipt; merchantName: string };
 
@@ -279,6 +326,8 @@ export type AccessUser = {
   id: number;
   name: string | null;
   email: string | null;
+  /** Google sign-in or an admin-created username/password account. */
+  provider?: "google" | "local";
   systemRole: "owner" | "admin" | "user";
   assignments: {
     memberId: string;

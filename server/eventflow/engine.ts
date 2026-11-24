@@ -43,6 +43,8 @@ export type EventAggregate = {
   draws: InternalDraw[];
   ledger: LedgerEntry[];
   audit: import("../../shared/eventflow").Audit[];
+  /** Optional in persisted JSON written before pre-orders existed. */
+  preorders?: import("../../shared/eventflow").Preorder[];
 };
 
 export class DomainError extends Error {
