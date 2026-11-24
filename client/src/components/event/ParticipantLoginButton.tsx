@@ -5,11 +5,18 @@ import "@/styles/participant-session.css";
 export type ParticipantLoginButtonProps = {
   className?: string;
   disabled?: boolean;
+  /** Lead-in line above the button; null hides it. */
+  intro?: string | null;
+  label?: string;
+  hint?: string;
 };
 /** Place after, not instead of, the existing Google primary login button. */
 export function ParticipantLoginButton({
   className = "",
   disabled = false,
+  intro = "沒有 Google 帳戶？",
+  label = "使用臨時帳戶",
+  hint = "只供活動參與者，20小時後自動登出",
 }: ParticipantLoginButtonProps) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
@@ -33,16 +40,16 @@ export function ParticipantLoginButton({
   };
   return (
     <div className={`participant-login ${className}`.trim()}>
-      <p>沒有 Google 帳戶？</p>
+      {intro && <p>{intro}</p>}
       <button
         type="button"
         className="participant-button participant-button--secondary"
         disabled={disabled || starting}
         onClick={() => void start()}
       >
-        {starting ? "正在登入…" : "使用臨時帳戶"}
+        {starting ? "正在登入…" : label}
       </button>
-      <small>只供活動參與者，20小時後自動登出</small>
+      <small>{hint}</small>
       {error && (
         <p className="participant-error" role="alert">
           {error}

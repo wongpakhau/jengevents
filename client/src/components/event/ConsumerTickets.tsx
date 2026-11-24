@@ -22,11 +22,14 @@ export default function ConsumerTickets({
   view,
   onUpdate,
   accessPending,
+  autoShow = false,
 }: {
   inviteToken: string;
   view: GuestView;
   onUpdate: (view: GuestView) => void;
   accessPending: boolean;
+  /** Generate and show the personal consumption QR as soon as identity is confirmed. */
+  autoShow?: boolean;
 }) {
   const [code, setCode] = useState<PurchaseCode | null>(null);
   const [showCode, setShowCode] = useState(false);
@@ -41,6 +44,7 @@ export default function ConsumerTickets({
   const callback = useRef(onUpdate);
   const latestView = useRef(view);
   const revision = useRef(0);
+  const autoShown = useRef(false);
   callback.current = onUpdate;
   latestView.current = view;
 
@@ -123,6 +127,14 @@ export default function ConsumerTickets({
       if (mounted.current) setBusy(null);
     }
   };
+
+  const createCodeRef = useRef(createCode);
+  createCodeRef.current = createCode;
+  useEffect(() => {
+    if (!autoShow || accessPending || autoShown.current) return;
+    autoShown.current = true;
+    void createCodeRef.current();
+  }, [autoShow, accessPending]);
 
   const decide = async (receipt: Receipt, confirmed: boolean) => {
     if (busyRef.current || accessPending) return;
@@ -211,6 +223,55 @@ export default function ConsumerTickets({
         <Ticket size={24} />
       </div>
       <p>出示你的消費 QR，讓商家掃描及輸入金額，再由你核對並確認。</p>
+      <button
+        type="button"
+        className="event-mobile-primary"
+        disabled={busy !== null || accessPending}
+        onClick={() => {
+          if (!showCode || expired) void createCode();
+          else setShowCode(false);
+        }}
+      >
+        {busy === "code" ? (
+          <LoaderCircle size={18} className="event-mobile-spin" />
+        ) : (
+          <QrCode size={18} />
+        )}
+        {busy === "code"
+          ? "正在產生…"
+          : showCode && !expired
+            ? "收起我的 QR code"
+            : showCode && expired
+              ? "更新我的 QR code"
+              : "SHOW 我的 QR code"}
+      </button>
+      {showCode && code && (
+        <div className="consumption-qr">
+          {expired ? (
+            <p role="status">
+              消費 QR 已過期，請按「更新我的 QR code」後讓商家重新掃描。
+            </p>
+          ) : (
+            <QRCode value={code.path} title="我的消費 QR（只供授權商家掃描）" />
+          )}
+          <p className="event-mobile-help">
+            有效至{" "}
+            {new Date(code.expiresAt).toLocaleTimeString("zh-HK", {
+              timeZone: "Asia/Hong_Kong",
+            })}
+            （香港時間）。此碼不是登入憑證，不會公開電話或電郵。請只向現場商家出示。
+          </p>
+          <button
+            type="button"
+            className="event-mobile-text-button"
+            disabled={busy !== null || accessPending}
+            onClick={() => void createCode()}
+          >
+            <RefreshCw size={16} />
+            更新消費 QR
+          </button>
+        </div>
+      )}
       <p className="event-mobile-help">
         {view.event.accumulation === "cumulative"
           ? `已確認消費跨筆累積，每滿 ${money(threshold)} 得一次一般抽獎機會，未滿餘額保留。`
@@ -236,53 +297,6 @@ export default function ConsumerTickets({
           {money(threshold - (currentCents % threshold))}{" "}
           可達下一次機會。歷史憑證保留當時規則。
         </p>
-      )}
-      <button
-        type="button"
-        className="event-mobile-primary"
-        disabled={busy !== null || accessPending}
-        onClick={() => {
-          if (!showCode || expired) void createCode();
-          else setShowCode(false);
-        }}
-      >
-        {busy === "code" ? (
-          <LoaderCircle size={18} className="event-mobile-spin" />
-        ) : (
-          <QrCode size={18} />
-        )}
-        {busy === "code"
-          ? "正在產生…"
-          : showCode && !expired
-            ? "收起我的 QR code"
-            : "SHOW 我的 QR code"}
-      </button>
-      {showCode && code && (
-        <div className="consumption-qr">
-          {expired ? (
-            <p role="status">
-              消費 QR 已過期，請按下方按鈕更新後讓商家重新掃描。
-            </p>
-          ) : (
-            <QRCode value={code.path} title="我的消費 QR（只供授權商家掃描）" />
-          )}
-          <p className="event-mobile-help">
-            有效至{" "}
-            {new Date(code.expiresAt).toLocaleTimeString("zh-HK", {
-              timeZone: "Asia/Hong_Kong",
-            })}
-            （香港時間）。此碼不是登入憑證，不會公開電話或電郵。請只向現場商家出示。
-          </p>
-          <button
-            type="button"
-            className="event-mobile-text-button"
-            disabled={busy !== null || accessPending}
-            onClick={() => void createCode()}
-          >
-            <RefreshCw size={16} />
-            更新消費 QR
-          </button>
-        </div>
       )}
       {message && (
         <p

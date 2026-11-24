@@ -32,7 +32,17 @@ const TRANSACTION_ISSUER = "eventflow-google-transaction";
 const SESSION_SECONDS = 7 * 24 * 60 * 60;
 const TRANSACTION_SECONDS = 10 * 60;
 const REQUEST_TIMEOUT_MS = 10_000;
-const RETURN_PATHS = new Set(["/", "/join", "/access"]);
+/** Fixed same-origin landing pages only; role homes let staff land on their own screen. */
+const RETURN_PATHS = new Set([
+  "/",
+  "/join",
+  "/access",
+  "/merchant",
+  "/checkin",
+  "/draw",
+  "/guests",
+  "/settlements",
+]);
 const GOOGLE_SESSION_COOKIE_OPTIONS: CookieOptions = {
   ...COOKIE_OPTIONS,
   sameSite: "none",

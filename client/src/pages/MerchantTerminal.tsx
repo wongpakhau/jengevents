@@ -13,11 +13,13 @@ import {
 import { api, idempotencyKey, money } from "@/lib/eventflow-api";
 import { useWorkspace } from "@/contexts/EventWorkspaceContext";
 import { stateScopeKey } from "@/lib/workspace-scope";
+import { roleHome, roleHomeLabel } from "@/lib/role-home";
 import QRScanner from "@/components/event/QRScanner";
 import QRCode from "@/components/event/QRCode";
 import { purchaseCodeFromQr } from "@/lib/purchase-qr";
 import type { ReceiptIssued } from "@shared/eventflow";
 import "@/styles/event-mobile.css";
+import "@/styles/role-entry.css";
 
 const amountPattern = /^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/;
 function toCents(value: string) {
@@ -39,6 +41,37 @@ function expiryLabel(value: string) {
     timeStyle: "short",
     timeZone: "Asia/Hong_Kong",
   }).format(new Date(value));
+}
+/** Device-generated reference when the merchant has no POS slip number to copy. */
+function autoReference(now = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const suffix = Math.floor(Math.random() * 36 ** 3)
+    .toString(36)
+    .toUpperCase()
+    .padStart(3, "0");
+  return `AUTO-${stamp}-${suffix}`;
+}
+function MerchantSteps({ step }: { step: 1 | 2 | 3 }) {
+  const labels = ["掃用戶 QR", "輸入金額", "等用戶確認"];
+  return (
+    <ol className="merchant-steps" aria-label="開單步驟">
+      {labels.map((label, index) => {
+        const number = index + 1;
+        const className =
+          number === step ? "is-active" : number < step ? "is-done" : "";
+        return (
+          <li
+            key={label}
+            className={className}
+            aria-current={number === step ? "step" : undefined}
+          >
+            {label}
+          </li>
+        );
+      })}
+    </ol>
+  );
 }
 interface PurchaseGuest {
   guest: { id: string; name: string; ticket: string };
@@ -63,7 +96,8 @@ function MerchantTerminalForScope() {
   const [reference, setReference] = useState("");
   const [issued, setIssued] = useState<ReceiptIssued | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [scanning, setScanning] = useState(false);
+  // The scanner panel is open from the start; the camera itself still waits for a tap.
+  const [scanning, setScanning] = useState(true);
   const [scanBusy, setScanBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [purchaseCode, setPurchaseCode] = useState("");
@@ -86,6 +120,8 @@ function MerchantTerminalForScope() {
   const roleAllowed =
     state &&
     ["owner", "admin", "project_manager", "merchant"].includes(state.role);
+  const staffWorkspace =
+    state && ["owner", "admin", "project_manager"].includes(state.role);
 
   useEffect(() => {
     active.current = true;
@@ -162,23 +198,25 @@ function MerchantTerminalForScope() {
   const createReceipt = async (submitEvent: React.FormEvent) => {
     submitEvent.preventDefault();
     if (busyRef.current) return;
-    if (
-      !state ||
-      !selectedMerchant?.active ||
-      !amountCents ||
-      !reference.trim()
-    ) {
-      setFormError("請選擇授權商戶，輸入正確金額及交易參考。");
+    if (!state || !selectedMerchant?.active || !amountCents) {
+      setFormError("請選擇授權商戶並輸入正確金額。");
       return;
     }
     if (!legacy && (!purchaseCode || codeExpired)) {
       setFormError("請先掃描用戶有效的消費 QR。");
       return;
     }
+    // A blank reference gets a device-generated one, kept in the form so a
+    // retry of the same transaction reuses the same reference and key.
+    let finalReference = reference.trim();
+    if (!finalReference) {
+      finalReference = autoReference();
+      setReference(finalReference);
+    }
     const payload = {
       merchantId: selectedMerchant.id,
       amountCents,
-      reference: reference.trim(),
+      reference: finalReference,
       ...(!legacy ? { purchaseCode } : {}),
     };
     const signature = JSON.stringify(payload);
@@ -216,7 +254,7 @@ function MerchantTerminalForScope() {
     setFormError(null);
     setPurchaseCode("");
     setPurchaseGuest(null);
-    setScanning(false);
+    setScanning(true);
     lastAttemptSignatureRef.current = null;
     receiptKeyRef.current = idempotencyKey();
   };
@@ -247,6 +285,14 @@ function MerchantTerminalForScope() {
           {!session
             ? "請先以授權工作人員帳戶登入。"
             : "你的帳戶沒有商戶開單權限。"}
+          {session && state && (
+            <Link
+              href={roleHome(state.role, state.event.mode)}
+              className="event-mobile-primary"
+            >
+              前往{roleHomeLabel(state.role, state.event.mode)}
+            </Link>
+          )}
         </section>
       </main>
     );
@@ -257,6 +303,8 @@ function MerchantTerminalForScope() {
   const issuedUrl = issued?.path
     ? new URL(issued.path, window.location.origin).toString()
     : "";
+  const step: 1 | 2 | 3 = issued ? 3 : purchaseGuest || legacy ? 2 : 1;
+  const singleMerchant = merchants.length === 1 ? merchants[0] : null;
   return (
     <main className="event-mobile event-mobile--merchant">
       <header
@@ -280,9 +328,16 @@ function MerchantTerminalForScope() {
             : "正在取得資料…"}
           。這不是支付平台實際收款。{workspaceError && ` ${workspaceError}`}
         </p>
-        <Link href="/settlements" className="event-mobile-primary">
-          查看商戶對帳
-        </Link>
+        <div className="merchant-return">
+          <Link href="/settlements" className="event-mobile-primary">
+            查看商戶對帳
+          </Link>
+          {staffWorkspace && (
+            <Link href="/" className="event-mobile-primary">
+              返回活動總覽
+            </Link>
+          )}
+        </div>
       </header>
       {!issued ? (
         <form
@@ -296,30 +351,47 @@ function MerchantTerminalForScope() {
             </div>
             <ReceiptText size={23} />
           </div>
-          <label className="event-mobile-label" htmlFor="merchant-select">
-            授權商戶
-          </label>
-          <select
-            id="merchant-select"
-            value={merchantId}
-            onChange={change => {
-              setMerchantId(change.target.value);
-              setPurchaseGuest(null);
-              setPurchaseCode("");
-            }}
-            disabled={submitting || scanBusy || !merchants.length}
-          >
-            {merchants.map(merchant => (
-              <option
-                key={merchant.id}
-                value={merchant.id}
-                disabled={!merchant.active}
+          <MerchantSteps step={step} />
+          {singleMerchant ? (
+            <p className="merchant-fixed">
+              <span>
+                {singleMerchant.name}
+                <small>
+                  {singleMerchant.active
+                    ? "你的授權商戶"
+                    : "此商戶已停用，請聯絡大會"}
+                </small>
+              </span>
+              <Store size={18} />
+            </p>
+          ) : (
+            <>
+              <label className="event-mobile-label" htmlFor="merchant-select">
+                授權商戶
+              </label>
+              <select
+                id="merchant-select"
+                value={merchantId}
+                onChange={change => {
+                  setMerchantId(change.target.value);
+                  setPurchaseGuest(null);
+                  setPurchaseCode("");
+                }}
+                disabled={submitting || scanBusy || !merchants.length}
               >
-                {merchant.name}
-                {!merchant.active ? "（已停用）" : ""}
-              </option>
-            ))}
-          </select>
+                {merchants.map(merchant => (
+                  <option
+                    key={merchant.id}
+                    value={merchant.id}
+                    disabled={!merchant.active}
+                  >
+                    {merchant.name}
+                    {!merchant.active ? "（已停用）" : ""}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
           {!merchants.length && (
             <p className="event-mobile-help">
               沒有你可開單的商戶，請大會管理員設定授權。
@@ -332,20 +404,7 @@ function MerchantTerminalForScope() {
                 請用戶打開「消費領抽獎券」，出示個人的消費 QR
                 code；不要掃描其登入邀請。
               </p>
-              <button
-                type="button"
-                className="event-mobile-primary"
-                disabled={submitting || scanBusy || !selectedMerchant?.active}
-                onClick={() => setScanning(value => !value)}
-              >
-                <ScanLine size={18} />
-                {scanBusy
-                  ? "正在核對…"
-                  : scanning
-                    ? "收起掃碼器"
-                    : "SCAN 用戶 QR code"}
-              </button>
-              {scanning && (
+              {scanning && !purchaseGuest && selectedMerchant?.active && (
                 <QRScanner
                   embedded
                   disabled={scanBusy || submitting}
@@ -355,6 +414,12 @@ function MerchantTerminalForScope() {
                   description="只接受同一活動的消費識別碼；也可貼上完整 QR 連結。"
                   onDetect={resolveCode}
                 />
+              )}
+              {scanBusy && (
+                <p className="event-mobile-help" role="status">
+                  <LoaderCircle className="event-mobile-spin" size={16} />{" "}
+                  正在核對用戶…
+                </p>
               )}
               {purchaseGuest && (
                 <div className="consumption-pending">
@@ -370,6 +435,30 @@ function MerchantTerminalForScope() {
                   </p>
                 </div>
               )}
+              <button
+                type="button"
+                className={
+                  purchaseGuest || !scanning
+                    ? "event-mobile-primary"
+                    : "event-mobile-text-button"
+                }
+                disabled={submitting || scanBusy || !selectedMerchant?.active}
+                onClick={() => {
+                  if (purchaseGuest) {
+                    setPurchaseGuest(null);
+                    setPurchaseCode("");
+                    setFormError(null);
+                    setScanning(true);
+                  } else setScanning(value => !value);
+                }}
+              >
+                <ScanLine size={18} />
+                {purchaseGuest
+                  ? "重新 SCAN 另一位用戶"
+                  : scanning
+                    ? "收起掃碼器"
+                    : "SCAN 用戶 QR code"}
+              </button>
             </section>
           )}
           <h3>{legacy ? "記錄金額" : "2. 輸入消費金額"}</h3>
@@ -393,14 +482,14 @@ function MerchantTerminalForScope() {
             只接受正數，最多兩位小數，最高 HK$1,000,000；以整數分保存。
           </p>
           <label className="event-mobile-label" htmlFor="receipt-reference">
-            商戶單據編號／交易參考
+            商戶單據編號／交易參考（可留空，自動產生）
           </label>
           <input
             id="receipt-reference"
             value={reference}
             maxLength={200}
             onChange={change => setReference(change.target.value)}
-            placeholder="例如 POS-20270131-0042"
+            placeholder="留空則自動產生，例如 AUTO-20270131-170502-K3F"
             autoComplete="off"
             disabled={submitting || (!legacy && !purchaseGuest)}
           />
@@ -433,7 +522,6 @@ function MerchantTerminalForScope() {
               scanBusy ||
               !selectedMerchant?.active ||
               !amountCents ||
-              !reference.trim() ||
               (!legacy && (!purchaseGuest || codeExpired))
             }
           >

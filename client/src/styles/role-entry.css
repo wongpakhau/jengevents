@@ -1,0 +1,217 @@
+/* Signed-out landing: one plain entrance per kind of person. */
+.role-entry {
+  gap: 14px;
+}
+.role-entry > p[role="status"] {
+  margin-bottom: 4px;
+}
+.role-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  width: min(1040px, 100%);
+  text-align: left;
+}
+.role-entry-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 20px 20px;
+  background: #fff;
+  border: 1px solid #e1e5dc;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(32, 35, 33, 0.04);
+}
+.role-entry-card.is-primary {
+  border-color: var(--event-brand, #c89538);
+  box-shadow: 0 0 0 3px rgba(200, 149, 56, 0.14);
+}
+.role-entry-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: #f3efe4;
+  color: var(--event-brand, #c89538);
+}
+.role-entry-card h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #202321;
+}
+.role-entry-card > p {
+  flex: 1;
+  margin: 0;
+  max-width: none;
+  font-size: 13px;
+  line-height: 1.75;
+  color: #627064;
+}
+.role-entry-card .access-login,
+.role-entry-card .participant-login {
+  align-items: stretch;
+  text-align: center;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.role-entry-card .access-login .button,
+.role-entry-card .participant-button,
+.role-entry-card > .button {
+  width: 100%;
+  min-height: 46px;
+  font-size: 14px;
+  text-align: center;
+  justify-content: center;
+}
+.role-entry-card > .button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+.role-entry-card .participant-login p {
+  display: none;
+}
+.role-entry-card small {
+  max-width: none;
+  text-align: center;
+  font-size: 12px;
+  color: #758071;
+}
+.role-entry .role-demo-entry {
+  width: min(1040px, 100%);
+  align-items: center;
+  margin-top: 6px;
+}
+.access-login--compact {
+  gap: 8px;
+}
+@media (max-width: 860px) {
+  .role-entry-grid {
+    grid-template-columns: 1fr;
+  }
+  .role-entry-card.is-primary {
+    order: -1;
+  }
+}
+
+/* Workspace "not in scope" page points to the role's own screen. */
+.mvp-empty .button {
+  text-decoration: none;
+}
+
+/* Merchant terminal: three steps, always visible. */
+.merchant-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+  counter-reset: merchant-step;
+}
+.merchant-steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px;
+  border-radius: 10px;
+  background: #f3f1ea;
+  color: #6b7266;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.merchant-steps li::before {
+  counter-increment: merchant-step;
+  content: counter(merchant-step);
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid #d9dccf;
+  font-size: 11px;
+}
+.merchant-steps li.is-active {
+  background: var(--event-accent, #c89538);
+  color: #fff;
+}
+.merchant-steps li.is-active::before {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: transparent;
+  color: #202321;
+}
+.merchant-steps li.is-done {
+  background: #e5efe6;
+  color: #2f5a3b;
+}
+.merchant-steps li.is-done::before {
+  content: "✓";
+  background: #2f5a3b;
+  border-color: transparent;
+  color: #fff;
+}
+.merchant-fixed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f7f5ef;
+  font-weight: 600;
+}
+.merchant-fixed small {
+  display: block;
+  font-weight: 500;
+  color: #6b7266;
+}
+.merchant-return {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (max-width: 460px) {
+  .merchant-steps li {
+    flex-direction: column;
+    text-align: center;
+    gap: 5px;
+    padding: 9px 6px;
+  }
+}
+
+/* Admin overview quick actions. */
+.mvp-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+.mvp-quick-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 8px 14px;
+  border: 1px solid var(--mvp-line, #e1e5dc);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--mvp-ink, #202321);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.mvp-quick-actions a:hover {
+  border-color: var(--event-brand, #c89538);
+}
+.mvp-quick-actions a.is-accent {
+  background: var(--event-brand, #c89538);
+  border-color: transparent;
+  color: #fff;
+}

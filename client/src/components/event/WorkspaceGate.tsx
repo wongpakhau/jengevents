@@ -1,25 +1,28 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
+import { LayoutDashboard, Store, Ticket } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useWorkspace } from "@/contexts/EventWorkspaceContext";
 import { api, idempotencyKey } from "@/lib/eventflow-api";
 import { eventDateFromFields } from "@/lib/event-date";
+import {
+  guestEntryPath,
+  roleHome,
+  roleHomeLabel,
+  shouldForwardFromRoot,
+  staffReturnPath,
+} from "@/lib/role-home";
 import { startLogin } from "@/const";
 import type { EventInfo, EventProgram } from "@shared/eventflow";
 import { GOOGLE_PRODUCTION_ORIGIN } from "@shared/google-login";
 import "@/styles/access-management.css";
+import "@/styles/role-entry.css";
 import ParticipantLoginButton from "./ParticipantLoginButton";
 
 export function WorkspaceGate({ children }: { children: ReactNode }) {
   const { session, state, loading, error, reload } = useWorkspace();
   if (loading) return <StatusPane text="正在驗證登入及讀取活動…" />;
-  if (!session)
-    return (
-      <StatusPane
-        text={error || "工作人員請使用 Google 登入；活動參與者可使用臨時帳戶。"}
-        action={<GoogleLoginButton />}
-      />
-    );
+  if (!session) return <RoleEntry error={error} />;
   let pending = "";
   try {
     pending = sessionStorage.getItem("eventflow-pending-staff-invite") || "";
@@ -53,8 +56,135 @@ export function WorkspaceGate({ children }: { children: ReactNode }) {
   return (
     <>
       <PendingOwnership />
-      {children}
+      <RoleLanding>{children}</RoleLanding>
     </>
+  );
+}
+
+/**
+ * Staff land on their own first screen. Only the workspace root forwards, so
+ * a deliberately opened page (for example /settlements) is never hijacked.
+ */
+function RoleLanding({ children }: { children: ReactNode }) {
+  const { state } = useWorkspace();
+  const [location, navigate] = useLocation();
+  const role = state?.role;
+  const mode = state?.event.mode ?? "full";
+  const forward = Boolean(state) && shouldForwardFromRoot(location, role, mode);
+  const target = roleHome(role, mode);
+  useEffect(() => {
+    if (forward) navigate(target, { replace: true });
+  }, [forward, target, navigate]);
+  if (forward)
+    return <StatusPane text={`正在前往${roleHomeLabel(role, mode)}…`} />;
+  return <>{children}</>;
+}
+
+function safeStorage(kind: "localStorage" | "sessionStorage") {
+  try {
+    return window[kind];
+  } catch {
+    return null;
+  }
+}
+
+/** Signed-out landing: three plain entrances, one per kind of person. */
+function RoleEntry({ error }: { error: string | null }) {
+  const [location] = useLocation();
+  const loginError = authErrorMessage();
+  const staffReturn = staffReturnPath(location);
+  const merchantContext = location === "/merchant";
+  const guestPath = guestEntryPath(
+    safeStorage("localStorage"),
+    safeStorage("sessionStorage")
+  );
+  return (
+    <main className="mvp-gate role-entry">
+      <img src="/eventflow-mark.svg" width={52} alt="EventFlow" />
+      <h1>EventFlow 活動工作台</h1>
+      <p role="status">
+        {error || "請選擇你的身份。登入後會直接到達你自己的工作畫面。"}
+      </p>
+      {loginError && (
+        <p className="mvp-error" role="alert">
+          {loginError}
+        </p>
+      )}
+      <div className="role-entry-grid">
+        <article
+          className={`role-entry-card ${merchantContext ? "" : "is-primary"}`}
+        >
+          <span className="role-entry-icon" aria-hidden="true">
+            <LayoutDashboard size={22} />
+          </span>
+          <h2>大會管理員／工作人員</h2>
+          <p>
+            活動總覽、嘉賓與座位、現場簽到、商戶對帳與抽獎控制。簽到、抽獎或嘉賓管理人員登入後會直接到自己的工作台。
+          </p>
+          <GoogleLoginButton
+            returnTo={staffReturn === "/merchant" ? "/" : staffReturn}
+            label="Google 登入工作台"
+            variant="compact"
+          />
+        </article>
+        <article
+          className={`role-entry-card ${merchantContext ? "is-primary" : ""}`}
+        >
+          <span className="role-entry-icon" aria-hidden="true">
+            <Store size={22} />
+          </span>
+          <h2>商家</h2>
+          <p>
+            登入後直接進入「商戶掃碼開單」：掃用戶 QR → 輸入金額 →
+            等用戶確認。只可為大會授權給你的商戶開單。
+          </p>
+          <GoogleLoginButton
+            returnTo="/merchant"
+            label="Google 登入商家終端"
+            variant="compact"
+          />
+        </article>
+        <article className="role-entry-card">
+          <span className="role-entry-icon" aria-hidden="true">
+            <Ticket size={22} />
+          </span>
+          <h2>用戶／嘉賓</h2>
+          <p>
+            毋須 Google 帳戶。出示你的消費 QR
+            給商家掃描，確認金額後每滿指定金額得一次抽獎機會，並可查看座位與抽獎結果。
+          </p>
+          {guestPath === "/guest" ? (
+            <>
+              <Link href="/guest" className="button button-dark">
+                進入我的嘉賓頁
+              </Link>
+              <small>此裝置已記住你的嘉賓邀請；不會公開你的電話或電郵。</small>
+            </>
+          ) : (
+            <ParticipantLoginButton
+              intro={null}
+              label="以臨時帳戶進入"
+              hint="登入後掃描大會登記 QR 或你的個人邀請 QR；20 小時後自動登出。"
+            />
+          )}
+        </article>
+      </div>
+      <section className="role-demo-entry" aria-label="角色測試入口">
+        <strong>試用示範（不登入正式帳戶）</strong>
+        <div className="mvp-inline-actions">
+          <Link href="/demo/admin" className="button button-white">
+            測試管理員
+          </Link>
+          <Link href="/demo/merchant" className="button button-white">
+            商家測試
+          </Link>
+          <Link href="/demo/guest" className="button button-white">
+            用家測試
+          </Link>
+        </div>
+        <small>示範消費只保存於此瀏覽器，不影響真實活動、對帳或抽獎。</small>
+      </section>
+    </main>
   );
 }
 
@@ -176,50 +306,76 @@ function authErrorMessage() {
   return messages[code] || "登入未能完成，請重新使用 Google 登入。";
 }
 
+/** One status request per page load, shared by every Google button on screen. */
+let googleStatusRequest: Promise<boolean> | null = null;
+function googleLoginConfigured(force = false): Promise<boolean> {
+  if (force || !googleStatusRequest) {
+    googleStatusRequest = (async () => {
+      const response = await fetch("/api/auth/google/status", {
+        credentials: "include",
+      });
+      if (!response.ok)
+        throw new Error("暫時無法確認 Google 登入設定，請重試。");
+      const data: unknown = await response.json();
+      if (
+        !data ||
+        typeof data !== "object" ||
+        !("configured" in data) ||
+        typeof data.configured !== "boolean"
+      )
+        throw new Error("Google 登入狀態回應不正確，請重試。");
+      return data.configured;
+    })().catch((reason: unknown) => {
+      googleStatusRequest = null;
+      throw reason;
+    });
+  }
+  return googleStatusRequest;
+}
+
 /** Shared by the workspace, invitation and standalone access pages. */
-export function GoogleLoginButton({ returnTo }: { returnTo?: string }) {
+export function GoogleLoginButton({
+  returnTo,
+  label = "使用 Google 帳戶登入",
+  variant = "full",
+}: {
+  returnTo?: string;
+  label?: string;
+  /** compact: the button and its status only; the role landing supplies the rest. */
+  variant?: "full" | "compact";
+}) {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [statusError, setStatusError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [starting, setStarting] = useState(false);
   const startingRef = useRef(false);
-  const loginError = authErrorMessage();
+  const compact = variant === "compact";
+  const loginError = compact ? "" : authErrorMessage();
 
   useEffect(() => {
-    const controller = new AbortController();
+    let active = true;
     setConfigured(null);
     setStatusError("");
-    void (async () => {
-      try {
-        const response = await fetch("/api/auth/google/status", {
-          credentials: "include",
-          signal: controller.signal,
-        });
-        if (!response.ok)
-          throw new Error("暫時無法確認 Google 登入設定，請重試。");
-        const data: unknown = await response.json();
-        if (
-          !data ||
-          typeof data !== "object" ||
-          !("configured" in data) ||
-          typeof data.configured !== "boolean"
-        )
-          throw new Error("Google 登入狀態回應不正確，請重試。");
-        if (!controller.signal.aborted) setConfigured(data.configured);
-      } catch (reason) {
-        if (!controller.signal.aborted)
+    googleLoginConfigured(attempt > 0).then(
+      value => {
+        if (active) setConfigured(value);
+      },
+      (reason: unknown) => {
+        if (active)
           setStatusError(
             reason instanceof Error
               ? reason.message
               : "未能讀取 Google 登入狀態。"
           );
       }
-    })();
-    return () => controller.abort();
+    );
+    return () => {
+      active = false;
+    };
   }, [attempt]);
 
   return (
-    <div className="access-login">
+    <div className={`access-login ${compact ? "access-login--compact" : ""}`}>
       <button
         type="button"
         className="button button-dark"
@@ -241,7 +397,7 @@ export function GoogleLoginButton({ returnTo }: { returnTo?: string }) {
           }
         }}
       >
-        {starting ? "正在前往 Google…" : "使用 Google 帳戶登入"}
+        {starting ? "正在前往 Google…" : label}
       </button>
       {import.meta.env.PROD &&
         window.location.origin !== GOOGLE_PRODUCTION_ORIGIN && (
@@ -277,27 +433,31 @@ export function GoogleLoginButton({ returnTo }: { returnTo?: string }) {
           {loginError}
         </p>
       )}
-      <small>
-        以 Google 登入後自動建立待授權帳戶；毋須另外設定電郵或密碼。
-      </small>
-      <ParticipantLoginButton />
-      <section className="role-demo-entry" aria-label="角色測試入口">
-        <strong>角色測試（獨立示範）</strong>
-        <div className="mvp-inline-actions">
-          <Link href="/demo/admin" className="button button-white">
-            測試管理員
-          </Link>
-          <Link href="/demo/merchant" className="button button-white">
-            商家測試
-          </Link>
-          <Link href="/demo/guest" className="button button-white">
-            用家測試
-          </Link>
-        </div>
-        <small>
-          不會登入正式帳戶。示範消費只保存於此瀏覽器，不影響真實活動、對帳或抽獎。
-        </small>
-      </section>
+      {!compact && (
+        <>
+          <small>
+            以 Google 登入後自動建立待授權帳戶；毋須另外設定電郵或密碼。
+          </small>
+          <ParticipantLoginButton />
+          <section className="role-demo-entry" aria-label="角色測試入口">
+            <strong>試用示範（不登入正式帳戶）</strong>
+            <div className="mvp-inline-actions">
+              <Link href="/demo/admin" className="button button-white">
+                測試管理員
+              </Link>
+              <Link href="/demo/merchant" className="button button-white">
+                商家測試
+              </Link>
+              <Link href="/demo/guest" className="button button-white">
+                用家測試
+              </Link>
+            </div>
+            <small>
+              示範消費只保存於此瀏覽器，不影響真實活動、對帳或抽獎。
+            </small>
+          </section>
+        </>
+      )}
     </div>
   );
 }

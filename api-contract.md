@@ -4,6 +4,7 @@
 
 ## 存取
 GET /session -> Session (401 if logged out)
+GET /api/auth/google/start?returnTo=<path> -> 302 Google；returnTo 只接受固定同源路徑白名單 `/`, `/join`, `/access`, `/merchant`, `/checkin`, `/draw`, `/guests`, `/settlements`（完全相等，不接受 query/hash/尾斜線/其他路徑），否則回 `/`。回呼後 302 至白名單路徑；前端 RoleLanding 只在路徑為 `/` 時依活動角色轉向（merchant→/merchant、checkin→/checkin、draw→/draw、guest_manager→/guests；attendance 模式 merchant/draw 留在 `/`），深連結不轉向。
 POST /organizations {name} -> {id,name} (verified user creates own tenant)
 POST /events {tenantId,name,date,venue} -> EventInfo (tenant owner only)
 GET /events/:eventId/state -> WorkspaceState (role-clipped; owner/admin all, checkin only guests/tables/basic event, draw only public guest fields/prizes/draws, merchant only authorized merchant/its receipts/basic event; no token hashes/private engine fields)

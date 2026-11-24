@@ -50,7 +50,10 @@ import {
   GOOGLE_SESSION_COOKIE,
   registerGoogleAuthRoutes,
 } from "./_core/googleAuth";
-import { GOOGLE_PRODUCTION_ORIGIN, googleStartUrl } from "../shared/google-login";
+import {
+  GOOGLE_PRODUCTION_ORIGIN,
+  googleStartUrl,
+} from "../shared/google-login";
 const ORIGIN = "https://app.example.invalid";
 const HOST = new URL(ORIGIN).host;
 const SECOND_ORIGIN = "https://other.example.invalid:8443";
@@ -564,7 +567,16 @@ describe("Google start: browser CSRF binding, PKCE and safe redirects", () => {
     expect(options.body.get("redirect_uri")).toBe(redirectUri);
   });
 
-  it.each(["/", "/join", "/access"])("allows returnTo %s", async path => {
+  it.each([
+    "/",
+    "/join",
+    "/access",
+    "/merchant",
+    "/checkin",
+    "/draw",
+    "/guests",
+    "/settlements",
+  ])("allows returnTo %s", async path => {
     expect(decodeJwt((await begin(path)).cookie).returnTo).toBe(path);
   });
 
@@ -575,6 +587,9 @@ describe("Google start: browser CSRF binding, PKCE and safe redirects", () => {
     "/join?next=https://attacker.invalid",
     "/access#fragment",
     "/admin",
+    "/merchant#purchase=abc",
+    "/merchant/",
+    "/screen",
     "/%2f%2fattacker.invalid",
   ])("does not allow open redirect returnTo %s", async path => {
     expect(decodeJwt((await begin(path)).cookie).returnTo).toBe("/");
@@ -1360,10 +1375,16 @@ describe("Production Google login behind a rebasing ingress", () => {
     expect(googleStartUrl("/access", true)).toBe(
       `${GOOGLE_PRODUCTION_ORIGIN}${START}?returnTo=%2Faccess`
     );
-    expect(googleStartUrl("/access", false)).toBe(`${START}?returnTo=%2Faccess`);
+    expect(googleStartUrl("/access", false)).toBe(
+      `${START}?returnTo=%2Faccess`
+    );
   });
 
-  it.each(["attacker.invalid", "bp.jengevents.com", "other.invalid, bp.jengevents.com"]) (
+  it.each([
+    "attacker.invalid",
+    "bp.jengevents.com",
+    "other.invalid, bp.jengevents.com",
+  ])(
     "ignores forged forwarded host %s and uses the fixed callback",
     async forwardedHost => {
       const req = request({
@@ -1375,7 +1396,9 @@ describe("Production Google login behind a rebasing ingress", () => {
       expect(new URL(start.location).searchParams.get("redirect_uri")).toBe(
         `${GOOGLE_PRODUCTION_ORIGIN}${CALLBACK}`
       );
-      const transaction = start.cookies.find(cookie => cookie.name === TX_COOKIE)!;
+      const transaction = start.cookies.find(
+        cookie => cookie.name === TX_COOKIE
+      )!;
       expect(transaction.options).toMatchObject({ ...COOKIE_FLAGS });
       expect(transaction.options.domain).toBeUndefined();
       expect(decodeJwt(transaction.value).redirectUri).toBe(
@@ -1385,10 +1408,14 @@ describe("Production Google login behind a rebasing ingress", () => {
   );
 
   it("rejects an unbound callback before any Google or database call", async () => {
-    const res = await invoke("GET", CALLBACK, request({
-      headers: { host: upstreamHost, "x-forwarded-host": "attacker.invalid" },
-      query: { state: "attacker-state", code: "unused" },
-    }));
+    const res = await invoke(
+      "GET",
+      CALLBACK,
+      request({
+        headers: { host: upstreamHost, "x-forwarded-host": "attacker.invalid" },
+        query: { state: "attacker-state", code: "unused" },
+      })
+    );
     expectError(res, "state_invalid");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(mocks.write).not.toHaveBeenCalled();
@@ -1402,23 +1429,45 @@ describe("Production Google login behind a rebasing ingress", () => {
     const res = await invoke("GET", CALLBACK, req);
     expect(res.location).toBe(`${GOOGLE_PRODUCTION_ORIGIN}/access`);
     expect(res.redirectStatus).toBe(303);
-    const session = res.cookies.find(cookie => cookie.name === GOOGLE_SESSION_COOKIE)!;
+    const session = res.cookies.find(
+      cookie => cookie.name === GOOGLE_SESSION_COOKIE
+    )!;
     expect(session.options).toMatchObject(SESSION_COOKIE_FLAGS);
     expect(session.options.domain).toBeUndefined();
     const tokenRequest = fetchMock.mock.calls[0]![1];
-    expect(tokenRequest.body.get("redirect_uri")).toBe(`${GOOGLE_PRODUCTION_ORIGIN}${CALLBACK}`);
+    expect(tokenRequest.body.get("redirect_uri")).toBe(
+      `${GOOGLE_PRODUCTION_ORIGIN}${CALLBACK}`
+    );
     expect(tokenRequest.body.get("code_verifier")).toBe(transaction.verifier);
-    expect(await authenticateGoogleRequest(sessionRequest(session.value, {
-      host: upstreamHost,
-      "x-forwarded-host": "attacker.invalid",
-    }))).toMatchObject({ openId: USER.openId, authProvider: "google", emailVerified: true });
+    expect(
+      await authenticateGoogleRequest(
+        sessionRequest(session.value, {
+          host: upstreamHost,
+          "x-forwarded-host": "attacker.invalid",
+        })
+      )
+    ).toMatchObject({
+      openId: USER.openId,
+      authProvider: "google",
+      emailVerified: true,
+    });
   });
 
   it("requires the fixed origin to remain explicitly configured", async () => {
-    mocks.trustedOrigins.splice(mocks.trustedOrigins.indexOf(GOOGLE_PRODUCTION_ORIGIN), 1);
-    const status = await invoke("GET", "/api/auth/google/status", request({ headers: { host: upstreamHost } }));
+    mocks.trustedOrigins.splice(
+      mocks.trustedOrigins.indexOf(GOOGLE_PRODUCTION_ORIGIN),
+      1
+    );
+    const status = await invoke(
+      "GET",
+      "/api/auth/google/status",
+      request({ headers: { host: upstreamHost } })
+    );
     expect(status.body).toEqual({ configured: false, loginPath: START });
-    expectError(await invoke("GET", START, request({ headers: { host: upstreamHost } })), "top_level_required");
+    expectError(
+      await invoke("GET", START, request({ headers: { host: upstreamHost } })),
+      "top_level_required"
+    );
   });
 
   it("accepts only fixed-origin same-origin JSON logout regardless of forwarded host", async () => {
@@ -1431,9 +1480,13 @@ describe("Production Google login behind a rebasing ingress", () => {
     };
     const accepted = await invoke("POST", LOGOUT, request({ headers }));
     expect(accepted.body).toEqual({ ok: true });
-    const rejected = await invoke("POST", LOGOUT, request({
-      headers: { ...headers, origin: "https://attacker.invalid" },
-    }));
+    const rejected = await invoke(
+      "POST",
+      LOGOUT,
+      request({
+        headers: { ...headers, origin: "https://attacker.invalid" },
+      })
+    );
     expect(rejected.statusCode).toBe(403);
     expect(rejected.cleared).toEqual([]);
   });

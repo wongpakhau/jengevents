@@ -19,9 +19,10 @@ import type { ClaimResult, GuestView, Receipt } from "@shared/eventflow";
 import { classLabel } from "@shared/registration";
 import { ELITE_GUEST_EVENT_SLUG } from "@shared/young-friends";
 import EliteGuestQuickActions from "@/components/event/EliteGuestQuickActions";
+import { GUEST_INVITE_STORAGE_KEY } from "@/lib/role-home";
 import "@/styles/event-mobile.css";
 
-const INVITE_STORAGE_KEY = "eventflow.guest-invite";
+const INVITE_STORAGE_KEY = GUEST_INVITE_STORAGE_KEY;
 
 function storedValue(kind: "localStorage" | "sessionStorage", key: string) {
   try {
@@ -371,29 +372,6 @@ export default function GuestPortal() {
         </section>
       )}
 
-      {inviteToken && (
-        <section className="event-mobile-card guest-capability">
-          <label className="event-mobile-check">
-            <input
-              type="checkbox"
-              checked={rememberInvite}
-              onChange={event => setRememberInvite(event.target.checked)}
-            />{" "}
-            <span>在此裝置記住我的嘉賓邀請</span>
-          </label>
-          <p className="event-mobile-help">
-            預設只在此瀏覽工作階段保存。不要在共用裝置勾選此項。
-          </p>
-          <button
-            type="button"
-            className="event-mobile-text-button"
-            onClick={forgetInvite}
-          >
-            <LogOut size={15} /> 移除此裝置上的嘉賓邀請
-          </button>
-        </section>
-      )}
-
       {message && (
         <p
           className="event-mobile-alert event-mobile-alert--success"
@@ -486,6 +464,11 @@ export default function GuestPortal() {
               <span className="event-mobile-eyebrow">WELCOME</span>
               <h2>{guest.name}</h2>
               <p>{guest.checkedInAt ? "已完成到場簽到" : "尚未簽到"}</p>
+              {event.mode !== "attendance" && (
+                <p className="event-mobile-help">
+                  消費時向商家出示下方「我的 QR code」，商家輸入金額後由你確認。
+                </p>
+              )}
               {classLabel(guest) && <p>班級：{classLabel(guest)}</p>}
               {guest.chapter && <p>分會：{guest.chapter}</p>}
               {guest.invitedBy && <p>邀請人：{guest.invitedBy}</p>}
@@ -496,6 +479,19 @@ export default function GuestPortal() {
               {guest.checkedInAt ? "已到場" : "待到場"}
             </span>
           </section>
+
+          {event.mode !== "attendance" && inviteToken && guestView && (
+            <ConsumerTickets
+              key={inviteToken}
+              inviteToken={inviteToken}
+              view={guestView}
+              accessPending={accessPending}
+              autoShow
+              onUpdate={next => {
+                if (inviteScope.current === inviteToken) setGuestView(next);
+              }}
+            />
+          )}
 
           {eliteQuickActions && (
             <EliteGuestQuickActions
@@ -533,17 +529,6 @@ export default function GuestPortal() {
 
           {event.mode !== "attendance" && (
             <>
-              {inviteToken && guestView && (
-                <ConsumerTickets
-                  key={inviteToken}
-                  inviteToken={inviteToken}
-                  view={guestView}
-                  accessPending={accessPending}
-                  onUpdate={next => {
-                    if (inviteScope.current === inviteToken) setGuestView(next);
-                  }}
-                />
-              )}
               <section className="event-mobile-card guest-list">
                 <div className="event-mobile-card__heading">
                   <div>
@@ -636,6 +621,29 @@ export default function GuestPortal() {
           />
         )}
       </section>
+
+      {inviteToken && (
+        <section className="event-mobile-card guest-capability">
+          <label className="event-mobile-check">
+            <input
+              type="checkbox"
+              checked={rememberInvite}
+              onChange={event => setRememberInvite(event.target.checked)}
+            />{" "}
+            <span>在此裝置記住我的嘉賓邀請</span>
+          </label>
+          <p className="event-mobile-help">
+            預設只在此瀏覽工作階段保存。不要在共用裝置勾選此項。
+          </p>
+          <button
+            type="button"
+            className="event-mobile-text-button"
+            onClick={forgetInvite}
+          >
+            <LogOut size={15} /> 移除此裝置上的嘉賓邀請
+          </button>
+        </section>
+      )}
     </main>
   );
 }

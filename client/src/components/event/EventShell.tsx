@@ -41,6 +41,12 @@ export const navigation: NavigationItem[] = [
     feature: "commerce",
   },
   {
+    path: "/merchant",
+    name: "商戶掃碼開單",
+    icon: ScanLine,
+    feature: "commerce",
+  },
+  {
     path: "/settlements",
     name: "交易與對帳",
     icon: ReceiptText,
@@ -80,7 +86,8 @@ export default function EventShell({ children }: { children: ReactNode }) {
       : activeNavigation.filter(
           item =>
             (state.role === "checkin" && item.path === "/checkin") ||
-            (state.role === "merchant" && item.path === "/settlements") ||
+            (state.role === "merchant" &&
+              ["/merchant", "/settlements"].includes(item.path)) ||
             (state.role === "draw" && item.path === "/draw") ||
             (state.role === "guest_manager" &&
               ["/", "/guests", "/seating", "/checkin"].includes(item.path))

@@ -1,13 +1,19 @@
+import type { ReactNode } from "react";
 import {
   Armchair,
   CalendarDays,
   CheckCircle2,
   CircleDollarSign,
+  Gift,
+  KeyRound,
   MapPin,
+  ScanLine,
+  Scale,
   Ticket,
   UserRoundCheck,
   Users,
 } from "lucide-react";
+import { Link } from "wouter";
 import { PageHeading } from "@/components/event/EventShell";
 import { money } from "@/lib/eventflow-api";
 import { formatEventDate, formatEventVenue } from "@/lib/event-date";
@@ -15,9 +21,39 @@ import { useWorkspace } from "@/contexts/EventWorkspaceContext";
 import { formatIso } from "./AdminShared";
 import RegistrationQRPanel from "./RegistrationQRPanel";
 import { eventGuests } from "@shared/eventflow";
+import "@/styles/role-entry.css";
+
+/** Client-side navigation in the browser; a plain anchor when rendered without a window. */
+function QuickLink({
+  href,
+  accent,
+  children,
+}: {
+  href: string;
+  accent?: boolean;
+  children: ReactNode;
+}) {
+  const className = accent ? "is-accent" : undefined;
+  if (typeof window === "undefined")
+    return (
+      <a href={href} className={className}>
+        {children}
+      </a>
+    );
+  return (
+    <Link href={href} className={className}>
+      {children}
+    </Link>
+  );
+}
 
 export default function AdminOverview() {
-  const { state, error: workspaceError, lastUpdatedAt } = useWorkspace();
+  const {
+    state,
+    session,
+    error: workspaceError,
+    lastUpdatedAt,
+  } = useWorkspace();
   if (!state) return null;
 
   const { event, tables, receipts, payments, prizes, draws } = state;
@@ -42,8 +78,12 @@ export default function AdminOverview() {
     (total, payment) => total + payment.amountCents,
     0
   );
+  const pendingReceipts = receipts.filter(
+    receipt => receipt.status === "pending"
+  ).length;
   const chances = guests.reduce((total, guest) => total + guest.chances, 0);
   const pendingDraws = draws.filter(draw => !draw.revealedAt).length;
+  const canManageAccess = Boolean(session?.canManageAccess);
 
   const stats = attendanceOnly
     ? [
@@ -89,7 +129,9 @@ export default function AdminOverview() {
           value: money(salesCents),
           suffix: "HKD",
           icon: CircleDollarSign,
-          note: `${validReceipts.length} 筆有效憑證`,
+          note: pendingReceipts
+            ? `${validReceipts.length} 筆有效憑證 · ${pendingReceipts} 筆待用戶確認`
+            : `${validReceipts.length} 筆有效憑證`,
         },
         {
           label: "已獲抽獎機會",
@@ -121,12 +163,39 @@ export default function AdminOverview() {
         }
       />
       <p className="mvp-data-freshness" role="status">
-        已記錄營業額約每 5 秒更新，來源是有效消費憑證；這不是支付平台已收款資料。{" "}
+        已記錄營業額約每 5
+        秒更新，來源是有效消費憑證；這不是支付平台已收款資料。{" "}
         {lastUpdatedAt
           ? `上次活動資料更新：${formatIso(new Date(lastUpdatedAt).toISOString())}`
           : "正在取得活動資料…"}
         {workspaceError && ` ${workspaceError}`}
       </p>
+      <nav className="mvp-quick-actions" aria-label="常用工作台">
+        <QuickLink href="/checkin" accent>
+          <ScanLine size={16} /> 現場簽到
+        </QuickLink>
+        <QuickLink href="/guests">
+          <Users size={16} /> 嘉賓管理
+        </QuickLink>
+        {!attendanceOnly && (
+          <>
+            <QuickLink href="/merchant">
+              <CircleDollarSign size={16} /> 商戶掃碼開單
+            </QuickLink>
+            <QuickLink href="/settlements">
+              <Scale size={16} /> 商戶對帳
+            </QuickLink>
+            <QuickLink href="/draw">
+              <Gift size={16} /> 抽獎控制
+            </QuickLink>
+          </>
+        )}
+        {canManageAccess && (
+          <QuickLink href="/access">
+            <KeyRound size={16} /> 帳戶授權
+          </QuickLink>
+        )}
+      </nav>
       <section className="mvp-event-hero">
         <div>
           <span className="mvp-kicker">

@@ -1,6 +1,7 @@
 import { RefreshCw, ScanLine } from "lucide-react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useWorkspace } from "@/contexts/EventWorkspaceContext";
+import { roleHome, roleHomeLabel } from "@/lib/role-home";
 import AdminDraw from "@/components/event/AdminDraw";
 import AdminFinance from "@/components/event/AdminFinance";
 import AdminGuests from "@/components/event/AdminGuests";
@@ -52,15 +53,22 @@ export default function EventWorkspace() {
     (state.role === "draw" && location === "/draw") ||
     (state.role === "guest_manager" &&
       ["/", "/guests", "/seating"].includes(location));
-  if (!scopeAllowed)
+  if (!scopeAllowed) {
+    const home = roleHome(state.role, state.event.mode);
     return (
       <main className="mvp-workspace">
         <section className="mvp-empty">
           <h1>此功能不在你的授權範圍</h1>
-          <p>請使用已分配的工作台功能，或向系統擁有人申請權限。</p>
+          <p>請使用已分配的工作台功能，或向大會管理員申請權限。</p>
+          {home !== location && (
+            <Link href={home} className="button button-dark">
+              前往{roleHomeLabel(state.role, state.event.mode)}
+            </Link>
+          )}
         </section>
       </main>
     );
+  }
   const attendanceOnly = state.event.mode === "attendance";
   const unavailable =
     attendanceOnly &&
